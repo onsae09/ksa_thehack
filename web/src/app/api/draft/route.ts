@@ -13,7 +13,7 @@ import { quoteInSource } from "@/lib/quotes";
 export const maxDuration = 60;
 
 const client = new Anthropic();
-const NS = "draft-v1";
+const NS = "draft-v2";
 
 /** 인용 후보 원문 하나 (논문 초록 또는 근거 문장) */
 export type DraftSource = { title: string; url: string; text: string };
@@ -21,6 +21,8 @@ export type DraftSource = { title: string; url: string; text: string };
 export type DraftRequest = {
   question: string;
   name: string;
+  /** 받는 사람 표기 (예: 연구실 페이지의 한글 이름). 없으면 name */
+  displayName?: string;
   institution: string;
   sources: DraftSource[];
 };
@@ -62,6 +64,7 @@ export async function POST(req: Request) {
   const question = String(body?.question ?? "").trim();
   const name = String(body?.name ?? "").trim();
   const institution = String(body?.institution ?? "").trim();
+  const displayName = String(body?.displayName ?? "").trim() || name;
   const sources: DraftSource[] = (Array.isArray(body?.sources) ? body.sources : [])
     .map((s) => ({ title: String(s?.title ?? ""), url: String(s?.url ?? ""), text: String(s?.text ?? "").slice(0, 3000) }))
     .filter((s) => s.text.length > 30)
@@ -69,7 +72,7 @@ export async function POST(req: Request) {
   if (!question || !name) return Response.json({ error: "연구 질문과 교수 이름이 필요합니다." }, { status: 400 });
   if (sources.length === 0) return Response.json({ error: "인용할 논문 원문이 없습니다." }, { status: 400 });
 
-  const key = cacheKey({ question, name, institution, sources });
+  const key = cacheKey({ question, name, displayName, institution, sources });
   const hit = await readCache<DraftResult>(NS, key);
   if (hit) return Response.json(hit.value);
 
@@ -103,8 +106,13 @@ export async function POST(req: Request) {
       quotes.push({ quote: q.quote.trim(), connection: q.connection.trim(), title: found.title, url: found.url });
     }
 
-    const body = quotes.map((q) => `교수님의 논문 「${q.title}」에서 “${q.quote}”라는 부분을 읽었습니다. ${q.connection}`);
-    const paragraph = [`${name} 교수님께,`, "", [out.intro.trim(), ...body, out.ask.trim()].join(" ")].join("\n");
+    // 같은 논문을 두 번 인용하면 제목을 반복하지 않는다. 인용 끝 마침표는 "…라는" 앞에서 뺀다
+    const body = quotes.map((q, i) => {
+      const text = q.quote.replace(/[.。]+$/, "");
+      const where = quotes.slice(0, i).some((x) => x.url === q.url) ? "같은 논문의" : `교수님의 논문 「${q.title}」에서`;
+      return `${where} “${text}”라는 부분을 읽었습니다. ${q.connection}`;
+    });
+    const paragraph = [`${displayName} 교수님께,`, "", [out.intro.trim(), ...body, out.ask.trim()].join(" ")].join("\n");
     const result: DraftResult = { paragraph, quotes, dropped };
     await writeCache(NS, key, result);
     return Response.json(result);
