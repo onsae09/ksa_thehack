@@ -5,7 +5,7 @@
 import type { InstitutionEquipment, NameEquipment } from "@/lib/equipment";
 import type { ItemResult, LabPage } from "@/lib/types";
 import type { Async } from "./data";
-import type { Source } from "./ui";
+import type { Source } from "./marks";
 
 export type Cell =
   | { s: "yes"; note: string; href?: string }

@@ -1,26 +1,13 @@
 import type { Metadata, Viewport } from "next";
-import { IBM_Plex_Mono, IBM_Plex_Sans_KR, Noto_Serif_KR } from "next/font/google";
+import { Noto_Serif_KR } from "next/font/google";
+import "pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css";
 import "./globals.css";
-
-const plexKr = IBM_Plex_Sans_KR({
-  weight: ["400", "500", "600", "700"],
-  subsets: ["latin"],
-  variable: "--font-plex-kr",
-  display: "swap",
-});
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 const serifKr = Noto_Serif_KR({
-  weight: ["600", "700"],
+  weight: ["500", "600"],
   subsets: ["latin"],
   variable: "--font-serif-kr",
-  display: "swap",
-  preload: false,
-});
-
-const plexMono = IBM_Plex_Mono({
-  weight: ["400", "500"],
-  subsets: ["latin"],
-  variable: "--font-plex-mono",
   display: "swap",
   preload: false,
 });
@@ -33,13 +20,15 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  themeColor: "#f6f4ee",
+  themeColor: "#f9f8f4",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="ko" className={`${plexKr.variable} ${serifKr.variable} ${plexMono.variable} h-full antialiased`}>
-      <body className="flex min-h-dvh flex-col">{children}</body>
+    <html lang="ko" className={`${serifKr.variable} h-full antialiased`}>
+      <body className="flex min-h-dvh flex-col">
+        <TooltipProvider delayDuration={150}>{children}</TooltipProvider>
+      </body>
     </html>
   );
 }

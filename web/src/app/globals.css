@@ -1,130 +1,146 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
 
 /*
- * LabFit KR — "연구 노트" 톤.
- * 종이색 바탕 + 잉크 네이비 + 출처별 고정 색(논문·연구실·ZEUS·NTIS).
- * 색만으로 뜻을 전하지 않도록 출처 표시는 항상 글자 라벨과 같이 쓴다.
+ * LabFit KR — 따뜻한 종이색 바탕 + 깊은 청록 한 가지 강조색.
+ * 장식은 히어로 뒤 점묘 패널 하나뿐. 그림자·그라디언트 대신 가는 선으로 나눈다.
+ * 출처(논문·연구실·ZEUS·NTIS)는 색 + 아이콘 + 글자로 함께 표시한다 (색만으로 구분하지 않음).
  */
+
 @theme inline {
-  --font-sans: var(--font-plex-kr), "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif;
+  --font-sans: "Pretendard Variable", Pretendard, -apple-system, "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif;
   --font-serif: var(--font-serif-kr), "AppleMyungjo", "Nanum Myeongjo", serif;
-  --font-mono: var(--font-plex-mono), ui-monospace, "SF Mono", Menlo, monospace;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --font-heading: var(--font-serif);
+
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+
+  /* 히어로 작성 카드의 진한 머리·꼬리 띠 */
+  --color-deep: var(--deep);
+  --color-deep-foreground: var(--deep-foreground);
+
+  /* 출처 */
+  --color-src-paper: var(--src-paper);
+  --color-src-lab: var(--src-lab);
+  --color-src-zeus: var(--src-zeus);
+  --color-src-ntis: var(--src-ntis);
+
+  /* 상태 */
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-mark: var(--mark);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
 }
 
 @theme {
-  /* 바탕·글자 */
-  --color-paper: #f6f4ee;
-  --color-surface: #ffffff;
-  --color-sunken: #efece4;
-  --color-line: #ddd8cc;
-  --color-line-strong: #c4bdad;
-  --color-ink: #1b2330;
-  --color-ink-2: #4a5261;
-  --color-ink-3: #6b7180;
+  --animate-rise: rise 320ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
 
-  /* 주 색: 잉크 네이비 */
-  --color-primary: #1e3a5f;
-  --color-primary-hover: #16304f;
-  --color-primary-soft: #e6ecf3;
-
-  /* 출처별 색 */
-  --color-src-paper: #1e3a5f; /* 논문 초록 */
-  --color-src-paper-soft: #e6ecf3;
-  --color-src-lab: #2c6a4a; /* 연구실 페이지 */
-  --color-src-lab-soft: #e3f0e8;
-  --color-src-zeus: #1d6a73; /* ZEUS 장비 */
-  --color-src-zeus-soft: #e0eff0;
-  --color-src-ntis: #8a5513; /* NTIS 국가과제 */
-  --color-src-ntis-soft: #f5ead9;
-
-  /* 상태 */
-  --color-ok: #2c6a4a;
-  --color-ok-soft: #e3f0e8;
-  --color-warn: #8a5a00;
-  --color-warn-soft: #fbf0d6;
-  --color-danger: #a12d2d;
-  --color-danger-soft: #f8e4e1;
-  --color-mark: #fde9a8;
-
-  --animate-shimmer: shimmer 1.8s ease-in-out infinite;
-  --animate-rise: rise 360ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
-  --animate-indeterminate: indeterminate 1.4s ease-in-out infinite;
-  --animate-blink: blink 1.2s ease-in-out infinite;
-
-  @keyframes shimmer {
-    0% { background-position: 100% 0; }
-    100% { background-position: -100% 0; }
-  }
   @keyframes rise {
     from { opacity: 0; transform: translateY(6px); }
     to { opacity: 1; transform: none; }
-  }
-  @keyframes indeterminate {
-    0% { transform: translateX(-100%); }
-    100% { transform: translateX(250%); }
-  }
-  @keyframes blink {
-    0%, 100% { opacity: 0.35; }
-    50% { opacity: 1; }
   }
 }
 
 :root {
   color-scheme: light;
+  --background: #f9f8f4;
+  --foreground: #102a2c;
+  --card: #fffffd;
+  --card-foreground: #102a2c;
+  --popover: #fffffd;
+  --popover-foreground: #102a2c;
+  --primary: #0b5e63; /* 흰 글자 대비 7.5:1 */
+  --primary-foreground: #ffffff;
+  --secondary: #eef0ea;
+  --secondary-foreground: #102a2c;
+  --muted: #f1efe8;
+  --muted-foreground: #586a6b; /* 바탕 대비 5.3:1 */
+  --accent: #e7f0ec;
+  --accent-foreground: #0b4a4e;
+  --destructive: #a3302b;
+  --border: #e3e0d6;
+  --input: #d7d3c7;
+  --ring: #0b5e63;
+  --radius: 0.625rem;
+
+  --deep: #22504f;
+  --deep-foreground: #e8f1ee;
+
+  --src-paper: #0b5e63;
+  --src-lab: #3a6b2a;
+  --src-zeus: #3b5b86;
+  --src-ntis: #8a5213;
+
+  --ok: #2f6a3c;
+  --ok-soft: #e6f0e6;
+  --warn: #835300;
+  --warn-soft: #f8eed6;
+  --mark: #fbe7a6;
 }
 
-html {
-  -webkit-text-size-adjust: 100%;
-  scroll-padding-top: 1rem;
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    -webkit-text-size-adjust: 100%;
+    @apply font-sans;
+  }
+  body {
+    @apply bg-background text-foreground;
+    word-break: keep-all; /* 한국어 어절 단위 줄바꿈 */
+    overflow-wrap: anywhere;
+    font-feature-settings: "ss06";
+  }
+  a {
+    text-underline-offset: 3px;
+    text-decoration-thickness: 1px;
+  }
+  button:not(:disabled),
+  [role="button"],
+  label[for] {
+    cursor: pointer;
+  }
+  ::selection {
+    background: var(--mark);
+  }
 }
 
-body {
-  background: var(--color-paper);
-  color: var(--color-ink);
-  font-family: var(--font-sans);
-  word-break: keep-all; /* 한국어 어절 단위 줄바꿈 */
-  overflow-wrap: anywhere;
-}
-
-/* 키보드 포커스는 항상 보이게 */
-:focus-visible {
-  outline: 2px solid var(--color-primary);
-  outline-offset: 2px;
-  border-radius: 4px;
-}
-
-::selection {
-  background: var(--color-mark);
-}
-
-a {
-  text-underline-offset: 3px;
-  text-decoration-thickness: 1px;
-}
-
-button:not(:disabled),
-summary,
-label[for],
-[role="button"] {
-  cursor: pointer;
-}
-
-summary {
-  list-style: none;
-}
-summary::-webkit-details-marker {
-  display: none;
-}
-
-.skeleton {
-  background: linear-gradient(90deg, var(--color-sunken) 0%, #f7f5f0 40%, var(--color-sunken) 80%);
-  background-size: 200% 100%;
-  animation: var(--animate-shimmer);
-  border-radius: 6px;
-}
-
-.tabular {
+@utility tabular {
   font-variant-numeric: tabular-nums;
+}
+
+/* 히어로 뒤 점묘 패널 (유일한 장식) */
+@utility stipple {
+  background-color: #eef4ef;
+  background-image: url("/stipple.svg");
+  background-size: cover;
+  background-position: center;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -40,8 +40,21 @@ keywords_en rules (used to find evidence sentences in abstracts with a case-inse
 
 keywords_ko: the same idea in Korean, 3-6 terms as they would literally appear in a Korean abstract (e.g. "시뮬레이션", "수치해석", "유한요소", "고속 카메라", "고속카메라", "교통카드"). Same rules: method/equipment itself only, no topic words.`;
 
-function splitEquipment(s: string): string[] {
-  return s.split(/[,，、\n]/).map((x) => x.trim()).filter(Boolean);
+/** 쉼표로 나누되 괄호 안 쉼표는 무시: "공간 광변조기(Spatial light modulator, SLM), 고속카메라" → 2개 */
+export function splitEquipment(s: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let cur = "";
+  for (const ch of s) {
+    if ("([（［".includes(ch)) depth++;
+    if (")]）］".includes(ch)) depth = Math.max(0, depth - 1);
+    if (depth === 0 && ",，、\n".includes(ch)) {
+      out.push(cur);
+      cur = "";
+    } else cur += ch;
+  }
+  out.push(cur);
+  return out.map((x) => x.trim()).filter(Boolean);
 }
 
 const STOP = new Set(["study", "analysis", "data", "model", "models", "results", "method", "methods", "experiment"]);

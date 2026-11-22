@@ -1,19 +1,20 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
+import { AlertCircle, BookOpenCheck, CircleCheck, Info, RotateCcw, SearchX, Unplug, X } from "lucide-react";
 import type { Extracted } from "@/app/api/extract/route";
 import type { LabPagesResult, ProjectsResult, SearchInput, SearchResult } from "@/lib/types";
-import { CandidateCard, DomesticCard } from "@/components/CandidateCard";
-import { IDLE_SIDE, postJSON, type Async, type EquipData, type SideData } from "@/components/data";
-import { EquipmentSection } from "@/components/Equipment";
-import { Filters, type NameFilter, type OrgFilter } from "@/components/Filters";
-import { OtherPIsSection } from "@/components/Projects";
-import { AdvisorCheck, ResultsSummary } from "@/components/ResultsSummary";
-import { EXAMPLES, SearchForm } from "@/components/SearchForm";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { CandidateSheet, type Selected } from "@/components/CandidateSheet";
+import { CandidateTable, DomesticTable, SourceLegend, TOP } from "@/components/CandidateTable";
+import { Composer, EXAMPLES, QueryBar } from "@/components/Composer";
+import { IDLE_SIDE, normName, postJSON, type Async, type EquipData, type SideData } from "@/components/data";
+import { Filters, type NameFilter, type OrgFilter, type RegionFilter } from "@/components/Filters";
+import { Caveat, Inferred, Quiet, SourceLabel, Spinner } from "@/components/marks";
+import { EquipmentTab, ProjectsTab, TabIntro } from "@/components/SideTabs";
 import { SearchProgress } from "@/components/SearchProgress";
-import { Caveat, Icon, SectionHeading, SourceLabel } from "@/components/ui";
-
-const TOP = 5;
 
 export default function Home() {
   const [question, setQuestion] = useState("");
@@ -23,20 +24,20 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<SearchResult | null>(null);
   const [lastInput, setLastInput] = useState<SearchInput | null>(null);
+  const [editing, setEditing] = useState(false);
   const [onlyEvidence, setOnlyEvidence] = useState(false);
   const [nameFilter, setNameFilter] = useState<NameFilter>("all");
   const [orgFilter, setOrgFilter] = useState<OrgFilter>("all");
+  const [regionFilter, setRegionFilter] = useState<RegionFilter>("all");
   const [extracting, setExtracting] = useState(false);
+  const [extractError, setExtractError] = useState<string | null>(null);
   const [proposal, setProposal] = useState<Extracted | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
   const [side, setSide] = useState<SideData>(IDLE_SIDE);
+  const [tab, setTab] = useState("candidates");
+  const [selected, setSelected] = useState<Selected>(null);
   const runId = useRef(0);
   const lastQuestion = useRef("");
-  const resultsRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (loading) resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, [loading]);
 
   /** 후보가 나온 뒤 장비(ZEUS)·국가과제(NTIS)·연구실 페이지를 동시에 따로 불러온다. 하나가 실패해도 나머지는 그대로 */
   function loadSide(r: SearchResult, id: number) {
@@ -74,7 +75,7 @@ export default function Home() {
   async function uploadProposal(file: File) {
     setExtracting(true);
     setFileName(file.name);
-    setError(null);
+    setExtractError(null);
     try {
       const fd = new FormData();
       fd.append("file", file);
@@ -87,25 +88,29 @@ export default function Home() {
       setMethods(ex.methods);
       setEquipment(ex.equipment.join(", "));
     } catch (e) {
-      setError(e instanceof Error ? e.message : "제안서 분석에 실패했습니다.");
+      setExtractError(e instanceof Error ? e.message : "제안서 분석에 실패했습니다.");
     } finally {
       setExtracting(false);
     }
   }
 
-  async function run(input: SearchInput) {
+  async function run(input: SearchInput, fresh = false) {
     const id = ++runId.current;
     lastQuestion.current = input.question;
     setLastInput(input);
+    setEditing(false);
     setLoading(true);
     setError(null);
     setResult(null);
+    setSelected(null);
+    setTab("candidates");
     setSide(IDLE_SIDE);
+    window.scrollTo({ top: 0 });
     try {
       const res = await fetch("/api/search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(input),
+        body: JSON.stringify(fresh ? { ...input, fresh: true } : input),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? "오류가 발생했습니다.");
@@ -123,187 +128,384 @@ export default function Home() {
     setQuestion(ex.question);
     setMethods(ex.methods);
     setEquipment(ex.equipment);
-    run(ex);
+    run({ question: ex.question, methods: ex.methods, equipment: ex.equipment });
   }
 
-  const filtered =
+  // 지역 외 필터를 먼저 걸고, 남은 후보로 지역별 수를 센다 (선택지에 0명 지역이 안 보이도록)
+  const preRegion =
     result?.candidates.filter(
       (c) =>
         (!onlyEvidence || c.items.some((i) => i.evidence)) &&
         (nameFilter === "all" || (nameFilter === "korean") === c.koreanName) &&
         (orgFilter === "all" || orgFilter === c.orgKind),
     ) ?? [];
-  const shown = filtered.slice(0, TOP);
-  const more = filtered.slice(TOP);
+  const regionCounts = new Map<string | null, number>();
+  for (const c of preRegion) regionCounts.set(c.sido ?? null, (regionCounts.get(c.sido ?? null) ?? 0) + 1);
+  const filtered = preRegion.filter((c) => regionFilter === "all" || (regionFilter === "unknown" ? !c.sido : c.sido === regionFilter));
   const domestic = result?.domestic.candidates.filter((c) => nameFilter === "all" || (nameFilter === "korean") === c.koreanName) ?? [];
   const hasEquipItems = !!result?.normalized.items.some((i) => i.kind === "equipment");
+  const started = lastInput !== null;
+  const showComposer = !started || editing;
+
+  const composer = (
+    <Composer
+      question={question}
+      methods={methods}
+      equipment={equipment}
+      setQuestion={setQuestion}
+      setMethods={setMethods}
+      setEquipment={setEquipment}
+      loading={loading}
+      extracting={extracting}
+      proposal={proposal}
+      fileName={fileName}
+      onUpload={uploadProposal}
+      onSubmit={() => run({ question, methods, equipment })}
+    />
+  );
 
   return (
     <>
-      <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:rounded focus:bg-surface focus:px-3 focus:py-2">
+      <a
+        href="#main"
+        className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:rounded-md focus:bg-card focus:px-3 focus:py-2"
+      >
         본문으로 건너뛰기
       </a>
-      <div className="border-b border-line bg-surface/60">
-        <div className="mx-auto flex w-full max-w-4xl items-center justify-between px-4 py-3 sm:px-6">
-          <span className="font-serif text-lg font-bold tracking-tight text-ink">
-            LabFit <span className="text-primary">KR</span>
-          </span>
-          <span className="text-xs text-ink-3">고등학생 R&amp;E 지도교수 찾기</span>
+
+      <header className="border-b border-border">
+        <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between px-4 sm:px-6">
+          <button
+            type="button"
+            onClick={() => {
+              if (!started) return;
+              runId.current++;
+              setLastInput(null);
+              setResult(null);
+              setError(null);
+              setLoading(false);
+              setEditing(false);
+            }}
+            className="flex items-center gap-2 text-foreground"
+            aria-label="LabFit KR 처음으로"
+          >
+            <BookOpenCheck className="size-5 text-primary" aria-hidden="true" />
+            <span className="text-[17px] font-semibold tracking-tight">
+              LabFit <span className="text-primary">KR</span>
+            </span>
+          </button>
+          <span className="text-sm text-muted-foreground">고등학생 R&amp;E 지도교수 찾기</span>
         </div>
-      </div>
+      </header>
 
-      <main id="main" className="mx-auto w-full max-w-4xl flex-1 px-4 pt-10 pb-20 sm:px-6">
-        <header className="mb-8 max-w-2xl">
-          <h1 className="font-serif text-3xl leading-tight font-bold tracking-tight text-ink sm:text-[2.5rem]">
-            그 주제를, 그 방법으로
-            <br />
-            연구해 본 교수님을 찾아요
-          </h1>
-          <p className="mt-4 text-[15px] leading-7 text-ink-2">
-            연구 질문과 쓰려는 방법을 넣으면 한국 연구자의 논문 초록에서 근거 문장을 찾아 지도교수 후보를 보여줍니다. 장비 보유 기관(ZEUS)과 국가과제(NTIS)도 함께 확인합니다.
-          </p>
-          <ul className="mt-5 grid gap-2 text-sm text-ink-2 sm:grid-cols-3">
-            {[
-              ["모든 근거에 출처 링크", "원문을 열어 직접 확인할 수 있어요"],
-              ["추정은 추정이라고 표시", "이름·소속·장비 추정에 꼬리표"],
-              ["없는 내용은 만들지 않음", "못 찾으면 못 찾았다고 씁니다"],
-            ].map(([t, d]) => (
-              <li key={t} className="border-l-2 border-primary/30 pl-3">
-                <span className="block font-semibold text-ink">{t}</span>
-                <span className="block text-xs text-ink-3">{d}</span>
-              </li>
-            ))}
-          </ul>
-        </header>
+      <main id="main" className="flex-1">
+        {!started && (
+          <>
+            <section className="mx-auto w-full max-w-6xl px-4 pt-14 text-center sm:px-6 sm:pt-20">
+              <h1 className="font-serif text-[1.85rem] leading-[1.3] font-semibold tracking-[-0.01em] text-foreground sm:text-5xl sm:leading-[1.2]">
+                그 주제를 그 방법으로
+                <br />
+                연구해 본 교수님을 찾아요
+              </h1>
+              <p className="mx-auto mt-5 max-w-xl text-base leading-7 text-foreground/75 sm:text-[17px]">
+                연구 질문과 쓰려는 방법을 넣으면, 한국 연구자의 논문 초록에서 근거 문장을 찾아 지도교수 후보를 보여줍니다.
+              </p>
+            </section>
 
-        <SearchForm
-          question={question}
-          methods={methods}
-          equipment={equipment}
-          setQuestion={setQuestion}
-          setMethods={setMethods}
-          setEquipment={setEquipment}
-          loading={loading}
-          extracting={extracting}
-          proposal={proposal}
-          fileName={fileName}
-          onUpload={uploadProposal}
-          onSubmit={() => run({ question, methods, equipment })}
-          onExample={pickExample}
-        />
-
-        <div ref={resultsRef} className="scroll-mt-4">
-          {error && (
-            <div role="alert" className="mt-8 flex flex-wrap items-start gap-3 rounded-xl border border-danger/30 bg-danger-soft p-4 text-sm text-danger">
-              <Icon name="alert" className="mt-0.5 size-4" />
-              <p className="flex-1">{error}</p>
-              {lastInput && !loading && (
-                <button
-                  type="button"
-                  onClick={() => run(lastInput)}
-                  className="min-h-9 rounded-md border border-danger/40 bg-surface px-3 text-xs font-semibold text-danger hover:bg-danger-soft"
-                >
-                  다시 시도
-                </button>
-              )}
-            </div>
-          )}
-
-          {loading && <SearchProgress question={lastInput?.question ?? question} />}
-
-          {result && (
-            <div className="mt-12">
-              <ResultsSummary result={result} top={shown} side={side} />
-
-              {proposal?.planned_advisor && <AdvisorCheck advisor={proposal.planned_advisor} result={result} />}
-
-              <nav aria-label="결과 바로가기" className="mt-8 flex flex-wrap gap-2 text-xs">
-                {[
-                  ["#candidates", "지도교수 후보"],
-                  ["#ntis-others", "놓친 과제 책임자"],
-                  ...(hasEquipItems ? [["#zeus", "장비 보유 기관"]] : []),
-                  ...(domestic.length ? [["#domestic", "국내 학술지 후보"]] : []),
-                ].map(([href, label]) => (
-                  <a key={href} href={href} className="inline-flex min-h-8 items-center rounded-full border border-line bg-surface px-3 font-medium text-ink-2 hover:border-line-strong hover:text-ink">
-                    {label}
-                  </a>
-                ))}
-              </nav>
-
-              <section className="mt-10" aria-labelledby="candidates">
-                <SectionHeading id="candidates" eyebrow={<SourceLabel source="paper">OpenAlex 논문 기준</SourceLabel>} title="지도교수 후보">
-                  주제 적합도와 방법 적합도를 반씩 더한 점수 순입니다. 상위 {TOP}명을 먼저 보여줍니다.
-                </SectionHeading>
-                <Filters
-                  org={orgFilter}
-                  setOrg={setOrgFilter}
-                  name={nameFilter}
-                  setName={setNameFilter}
-                  onlyEvidence={onlyEvidence}
-                  setOnlyEvidence={setOnlyEvidence}
-                  count={filtered.length}
-                />
-                {result.candidates.length > 0 && filtered.length === 0 && (
-                  <p className="mt-4 rounded-lg bg-sunken px-4 py-3 text-sm text-ink-2">필터 조건에 맞는 후보가 없습니다. 필터를 풀어 보세요.</p>
-                )}
-                {result.candidates.length === 0 && (
-                  <p className="mt-4 rounded-lg bg-sunken px-4 py-3 text-sm text-ink-2">
-                    조건에 맞는 한국 소속 논문을 찾지 못했습니다. 질문을 더 일반적인 표현으로 바꿔 보세요.
-                  </p>
-                )}
-                <div className="mt-4 space-y-5">
-                  {shown.map((c, i) => (
-                    <CandidateCard key={c.authorId} c={c} rank={i + 1} side={side} />
-                  ))}
+            <section aria-label="질문 입력" className="mx-auto mt-10 w-full max-w-6xl px-4 sm:mt-14 sm:px-6">
+              <div className="stipple rounded-3xl border border-border/70 px-3 py-10 sm:px-10 sm:py-20">
+                <div className="mx-auto max-w-3xl">
+                  {composer}
+                  {extractError && <ExtractError message={extractError} />}
+                  <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
+                    <span className="text-xs font-medium text-foreground/70">예시로 해보기</span>
+                    {EXAMPLES.map((ex) => (
+                      <button
+                        key={ex.title}
+                        type="button"
+                        disabled={loading || extracting}
+                        onClick={() => pickExample(ex)}
+                        className="h-8 rounded-full border border-border bg-card/90 px-3 text-xs font-medium text-foreground/80 transition-colors hover:border-input hover:bg-card hover:text-foreground disabled:opacity-50"
+                      >
+                        {ex.title}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                {more.length > 0 && (
-                  <details className="group mt-5">
-                    <summary className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-dashed border-line-strong text-sm font-medium text-ink-2 hover:border-ink-3 hover:text-ink">
-                      <Icon name="chevron" className="size-4 transition-transform group-open:rotate-90" />
-                      <span className="group-open:hidden">후보 {more.length}명 더 보기</span>
-                      <span className="hidden group-open:inline">접기</span>
-                    </summary>
-                    <div className="mt-5 space-y-5">
-                      {more.map((c, i) => (
-                        <CandidateCard key={c.authorId} c={c} rank={i + TOP + 1} side={side} />
-                      ))}
-                    </div>
-                    <Caveat className="mt-3">6위부터는 연구실 페이지를 따로 확인하지 않았습니다.</Caveat>
-                  </details>
+              </div>
+            </section>
+
+            <section aria-label="이 서비스의 원칙" className="mx-auto w-full max-w-6xl px-4 py-12 sm:px-6 sm:py-16">
+              <ul className="grid gap-6 sm:grid-cols-3 sm:gap-10">
+                {[
+                  ["모든 근거에 출처 링크", "근거 문장마다 논문 원문 링크가 붙어 있어 직접 확인할 수 있어요."],
+                  ["추정은 추정이라고 표시", "이름·소속·장비를 추정한 곳에는 꼬리표를 붙입니다."],
+                  ["없는 내용은 만들지 않음", "근거를 못 찾으면 못 찾았다고 씁니다. 못 한다는 뜻은 아니에요."],
+                ].map(([t, d]) => (
+                  <li key={t} className="border-t border-border pt-4">
+                    <p className="font-serif text-[17px] font-semibold text-foreground">{t}</p>
+                    <p className="mt-1.5 text-sm leading-6 text-muted-foreground">{d}</p>
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-10 text-xs leading-5 text-muted-foreground">
+                OpenAlex·DBpia 논문, ZEUS 국가연구시설장비, NTIS 국가R&amp;D 과제의 공개 정보를 씁니다. 올린 제안서 PDF는 저장하지 않습니다.
+              </p>
+            </section>
+          </>
+        )}
+
+        {started && (
+          <>
+            <div className="sticky top-0 z-30 border-b border-border bg-background/95 backdrop-blur-sm">
+              <div className="mx-auto w-full max-w-6xl px-4 py-3 sm:px-6">
+                {editing ? (
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-medium text-foreground">질문 수정</p>
+                    <Button variant="ghost" size="sm" onClick={() => setEditing(false)}>
+                      <X aria-hidden="true" />
+                      닫기
+                    </Button>
+                  </div>
+                ) : (
+                  <QueryBar
+                    input={lastInput}
+                    loading={loading}
+                    cachedAt={result?.cachedAt}
+                    onFresh={() => run(lastInput, true)}
+                    onEdit={() => {
+                      setEditing(true);
+                      window.scrollTo({ top: 0 });
+                    }}
+                    meta={
+                      result
+                        ? `논문 ${result.stats.papers.toLocaleString()}편 · 책임저자 ${result.stats.authors.toLocaleString()}명 · 후보 ${result.candidates.length}명 · ${(result.stats.ms / 1000).toFixed(1)}초`
+                        : null
+                    }
+                  />
                 )}
-              </section>
+              </div>
+            </div>
 
-              <OtherPIsSection async={side.projects} />
-
-              <EquipmentSection equip={side.equip} hasEquipItems={hasEquipItems} />
-
-              {result.domestic.status === "failed" ? (
-                <p className="mt-14 text-xs text-ink-3">국내 학술지(DBpia) 검색에 실패해 이번 결과에서는 생략했습니다.</p>
-              ) : (
-                domestic.length > 0 && (
-                  <section className="mt-14" aria-labelledby="domestic">
-                    <SectionHeading id="domestic" eyebrow={<SourceLabel source="paper">DBpia 국내 학술지</SourceLabel>} title="국내 학술지 후보">
-                      국내 학회·학술지 논문의 마지막 저자 기준입니다. DBpia는 소속과 교신저자를 공개하지 않아 위 목록과 합치지 않고 따로 보여줍니다.
-                    </SectionHeading>
-                    <div className="space-y-5">
-                      {domestic.map((c) => (
-                        <DomesticCard key={c.ancId} c={c} side={side} />
-                      ))}
-                    </div>
-                  </section>
-                )
+            <div className="mx-auto w-full max-w-6xl px-4 pt-6 pb-20 sm:px-6">
+              {showComposer && (
+                <div className="mb-8 rounded-3xl border border-border/70 stipple px-3 py-6 sm:px-8 sm:py-10">
+                  <div className="mx-auto max-w-3xl">
+                    {composer}
+                    {extractError && <ExtractError message={extractError} />}
+                  </div>
+                </div>
               )}
 
-              <footer className="mt-14 border-t border-line pt-4 text-xs leading-5 text-ink-3">
-                <p>검색 기준: OpenAlex에 등록된 최근 6년 논문 초록.</p>
-                <p className="mt-1">
-                  검색어: <span className="font-mono">{result.normalized.search_queries.join(" / ")}</span>
-                </p>
-              </footer>
+              {error && (
+                <Alert variant="destructive" className="mb-6 border-destructive/30 bg-card">
+                  <AlertCircle aria-hidden="true" />
+                  <AlertTitle>검색하지 못했습니다</AlertTitle>
+                  <AlertDescription>
+                    <p>{error}</p>
+                    {lastInput && !loading && (
+                      <Button variant="outline" size="sm" className="mt-2" onClick={() => run(lastInput)}>
+                        <RotateCcw aria-hidden="true" />
+                        다시 시도
+                      </Button>
+                    )}
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {loading && <SearchProgress />}
+
+              {result && (
+                <div className="animate-rise">
+                  <div className="flex flex-wrap items-center gap-1.5 text-sm">
+                    <span className="mr-1 text-xs text-muted-foreground">확인한 요구 항목</span>
+                    {result.normalized.items.map((i) => (
+                      <span key={i.label} className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border bg-card px-2 text-xs">
+                        <span className="text-muted-foreground">{i.kind === "method" ? "방법" : "장비"}</span>
+                        <span className="font-medium text-foreground">{i.label}</span>
+                        {i.inferred && <Inferred />}
+                      </span>
+                    ))}
+                  </div>
+
+                  {proposal?.planned_advisor && (
+                    <AdvisorCheck
+                      advisor={proposal.planned_advisor}
+                      result={result}
+                      onOpen={(s) => {
+                        setTab(s?.kind === "domestic" ? "domestic" : "candidates");
+                        setSelected(s);
+                      }}
+                    />
+                  )}
+
+                  <Tabs value={tab} onValueChange={setTab} className="mt-6 gap-5">
+                    <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
+                      <TabsList variant="line" className="h-10 group-data-horizontal/tabs:h-10 w-full justify-start gap-3 border-b sm:gap-5 border-border p-0">
+                        <Tab value="candidates" label="지도교수 후보" count={filtered.length} />
+                        <Tab
+                          value="domestic"
+                          label="국내 학술지"
+                          count={result.domestic.status === "failed" ? undefined : domestic.length}
+                        />
+                        <Tab value="equipment" label="장비" sub="ZEUS" loading={side.equip.state === "loading"} />
+                        <Tab
+                          value="projects"
+                          label="국가과제"
+                          sub="NTIS"
+                          loading={side.projects.state === "loading"}
+                          count={side.projects.state === "ok" ? side.projects.data.others.length : undefined}
+                        />
+                      </TabsList>
+                    </div>
+
+                    <TabsContent value="candidates" className="space-y-4">
+                      <div className="rounded-xl border border-border bg-muted/50 px-3 py-3 sm:px-4">
+                        <Filters
+                          org={orgFilter}
+                          setOrg={setOrgFilter}
+                          name={nameFilter}
+                          setName={setNameFilter}
+                          onlyEvidence={onlyEvidence}
+                          setOnlyEvidence={setOnlyEvidence}
+                          region={regionFilter}
+                          setRegion={setRegionFilter}
+                          regionCounts={regionCounts}
+                          count={filtered.length}
+                          total={result.candidates.length}
+                        />
+                      </div>
+                      <Caveat>
+                        주제 적합도와 방법 적합도를 반씩 더한 점수 순입니다. 한국인/외국인은 국적 정보가 없어 이름 표기로 추정했고, 지역은 OpenAlex 기관 주소 기준이라 분교·캠퍼스가 다르면 틀릴 수 있습니다. 행을 누르면 근거 문장과 출처가 열립니다.
+                      </Caveat>
+                      {result.candidates.length === 0 ? (
+                        <Quiet icon={SearchX}>조건에 맞는 한국 소속 논문을 찾지 못했습니다. 질문을 더 일반적인 표현으로 바꿔 보세요.</Quiet>
+                      ) : filtered.length === 0 ? (
+                        <Quiet>필터 조건에 맞는 후보가 없습니다. 필터를 풀어 보세요.</Quiet>
+                      ) : (
+                        <CandidateTable
+                          candidates={filtered}
+                          items={result.normalized.items}
+                          side={side}
+                          onOpen={(c, rank) => setSelected({ kind: "openalex", c, rank })}
+                        />
+                      )}
+                      <SourceLegend labsShown={side.labs.state === "loading" || (side.labs.state === "ok" && side.labs.data.status === "ok")} />
+                    </TabsContent>
+
+                    <TabsContent value="domestic" className="space-y-4">
+                      <TabIntro id="dbpia-title" source={<SourceLabel source="paper">DBpia 국내 학술지</SourceLabel>} title="국내 학술지 후보">
+                        국내 학회·학술지 논문의 마지막 저자 기준입니다. DBpia는 소속과 교신저자를 공개하지 않아 지도교수 후보 목록과 합치지 않고 따로 보여줍니다.
+                      </TabIntro>
+                      {result.domestic.status === "failed" ? (
+                        <Quiet icon={Unplug}>국내 학술지(DBpia) 검색에 실패해 이번 결과에서는 생략했습니다.</Quiet>
+                      ) : domestic.length === 0 ? (
+                        <Quiet icon={SearchX}>
+                          {result.domestic.candidates.length > 0 ? "이름 필터에 맞는 국내 학술지 후보가 없습니다." : "이 주제로 찾은 국내 학술지 후보가 없습니다."}
+                        </Quiet>
+                      ) : (
+                        <DomesticTable
+                          candidates={domestic}
+                          items={result.normalized.items}
+                          side={side}
+                          onOpen={(c) => setSelected({ kind: "domestic", c })}
+                        />
+                      )}
+                    </TabsContent>
+
+                    <TabsContent value="equipment">
+                      <EquipmentTab equip={side.equip} hasEquipItems={hasEquipItems} />
+                    </TabsContent>
+
+                    <TabsContent value="projects">
+                      <ProjectsTab async={side.projects} />
+                    </TabsContent>
+                  </Tabs>
+
+                  <footer className="mt-14 border-t border-border pt-4 text-xs leading-5 text-muted-foreground">
+                    <p>검색 기준: OpenAlex에 등록된 최근 6년 논문 초록.</p>
+                    <p className="mt-1">
+                      검색어: <span className="font-mono">{result.normalized.search_queries.join(" / ")}</span>
+                    </p>
+                  </footer>
+                </div>
+              )}
             </div>
-          )}
-        </div>
+          </>
+        )}
       </main>
+
+      <CandidateSheet selected={selected} onClose={() => setSelected(null)} side={side} question={lastInput?.question ?? ""} />
     </>
+  );
+}
+
+function Tab({ value, label, sub, count, loading }: { value: string; label: string; sub?: string; count?: number; loading?: boolean }) {
+  return (
+    <TabsTrigger
+      value={value}
+      className="h-10 flex-none rounded-none border-0 px-0.5 text-sm text-muted-foreground group-data-horizontal/tabs:after:bottom-0 after:bg-primary focus-visible:rounded-sm focus-visible:border-transparent focus-visible:bg-accent focus-visible:ring-0 focus-visible:outline-none sm:text-[15px] data-active:text-foreground"
+    >
+      {label}
+      {sub && <span className="hidden text-xs font-normal text-muted-foreground sm:inline">{sub}</span>}
+      {loading ? (
+        <Spinner label={`${label} 불러오는 중`} className="size-3" />
+      ) : count !== undefined ? (
+        <span className="rounded-full bg-muted px-1.5 text-xs font-normal text-muted-foreground tabular">{count}</span>
+      ) : null}
+    </TabsTrigger>
+  );
+}
+
+function ExtractError({ message }: { message: string }) {
+  return (
+    <p role="alert" className="mt-3 flex items-center gap-2 rounded-lg border border-destructive/25 bg-card px-3 py-2 text-sm text-destructive">
+      <AlertCircle className="size-4 shrink-0" aria-hidden="true" />
+      {message}
+    </p>
+  );
+}
+
+/** 제안서에 적힌 연락 예정 교수가 결과에 있는지 (이름 표기 차이를 고려해 성·이름 순서 둘 다 비교) */
+function AdvisorCheck({
+  advisor,
+  result,
+  onOpen,
+}: {
+  advisor: NonNullable<Extracted["planned_advisor"]>;
+  result: SearchResult;
+  onOpen: (s: Selected) => void;
+}) {
+  const en = advisor.name_en.trim().split(/\s+/);
+  const variants = new Set([normName(advisor.name), normName(en.join("")), normName([...en.slice(-1), ...en.slice(0, -1)].join(""))]);
+  const main = result.candidates.findIndex((c) => variants.has(normName(c.name)));
+  const dom = result.domestic.candidates.findIndex((c) => variants.has(normName(c.name)) || (c.nameEn && variants.has(normName(c.nameEn))));
+  const found = main >= 0 ? `전체 ${main + 1}위${main >= TOP ? ", 상위 5명 밖" : ""}` : dom >= 0 ? `국내 학술지 후보 ${dom + 1}위` : null;
+  const target: Selected =
+    main >= 0
+      ? { kind: "openalex", c: result.candidates[main], rank: main + 1 }
+      : dom >= 0
+        ? { kind: "domestic", c: result.domestic.candidates[dom] }
+        : null;
+  return (
+    <Alert className={found ? "mt-5 border-ok/25 bg-ok-soft/60" : "mt-5 bg-card"}>
+      {found ? <CircleCheck className="text-ok" aria-hidden="true" /> : <Info aria-hidden="true" />}
+      <AlertTitle className="font-normal text-muted-foreground">제안서의 연락 예정 교수</AlertTitle>
+      <AlertDescription className="text-foreground">
+        <p>
+          <b className="font-semibold">{advisor.name}</b> ({advisor.affiliation}) —{" "}
+          {found ? (
+            <>
+              결과에 있습니다 ({found}).{" "}
+              <button type="button" onClick={() => onOpen(target)} className="font-medium text-primary underline underline-offset-[3px]">
+                근거 보기
+              </button>
+            </>
+          ) : (
+            "상위 15명 안에는 없습니다. 논문 데이터로는 잡히지 않는 연결(학교 협력, 지인 소개 등)로 고른 교수일 수 있습니다."
+          )}
+        </p>
+      </AlertDescription>
+    </Alert>
   );
 }
