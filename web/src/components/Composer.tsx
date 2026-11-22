@@ -269,7 +269,9 @@ function ProposalStatus({
   if (proposal) {
     return (
       <span role="status" className="min-w-0 flex-1 text-sm leading-5 text-deep-foreground/90">
-        「{proposal.title}」에서 옮겨 적었습니다. 제안서와 같은지 확인한 뒤 찾기를 누르세요.
+        {proposal.source === "aim"
+          ? "제목 칸이 없는 양식이라 연구 목표 문장을 그대로 옮겼습니다. 제안서와 같은지 확인한 뒤 찾기를 누르세요."
+          : `「${proposal.title}」에서 옮겨 적었습니다. 제안서와 같은지 확인한 뒤 찾기를 누르세요.`}
       </span>
     );
   }
