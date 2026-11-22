@@ -13,7 +13,7 @@ import { quoteInSource } from "@/lib/quotes";
 export const maxDuration = 60;
 
 const client = new Anthropic();
-const NS = "draft-v2";
+const NS = "draft-v3";
 
 /** 인용 후보 원문 하나 (논문 초록 또는 근거 문장) */
 export type DraftSource = { title: string; url: string; text: string };
@@ -106,9 +106,9 @@ export async function POST(req: Request) {
       quotes.push({ quote: q.quote.trim(), connection: q.connection.trim(), title: found.title, url: found.url });
     }
 
-    // 같은 논문을 두 번 인용하면 제목을 반복하지 않는다. 인용 끝 마침표는 "…라는" 앞에서 뺀다
+    // 같은 논문을 두 번 인용하면 제목을 반복하지 않는다. 인용 끝 문장부호(. , ; :)는 "…라는" 앞에서 뺀다
     const body = quotes.map((q, i) => {
-      const text = q.quote.replace(/[.。]+$/, "");
+      const text = q.quote.replace(/[\s.。,，;:]+$/, "");
       const where = quotes.slice(0, i).some((x) => x.url === q.url) ? "같은 논문의" : `교수님의 논문 「${q.title}」에서`;
       return `${where} “${text}”라는 부분을 읽었습니다. ${q.connection}`;
     });
