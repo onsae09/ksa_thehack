@@ -54,6 +54,7 @@ export type Candidate = {
   name: string;
   orcid: string | null;
   institution: string;
+  institutionId: string;
   institutionType: string;
   orgKind: "university" | "institute";
   koreanName: boolean; // 이름 기준 추정

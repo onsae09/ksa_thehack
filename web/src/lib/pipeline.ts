@@ -91,6 +91,7 @@ export async function runSearch(input: SearchInput): Promise<SearchResult> {
       name: pi.name,
       orcid: pi.orcid,
       institution: pi.institution,
+      institutionId: pi.institutionId,
       institutionType: pi.institutionType,
       orgKind: orgKind(pi.institutionType),
       koreanName: isKoreanName(pi.name),

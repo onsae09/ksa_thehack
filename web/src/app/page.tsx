@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { Extracted } from "@/app/api/extract/route";
 import type { EmailResult } from "@/app/api/email/route";
+import type { EquipmentResult, InstitutionEquipment, NameEquipment } from "@/lib/equipment";
 import { METHOD_OPTIONS, type Candidate, type DomesticCandidate, type ItemResult, type SearchInput, type SearchResult } from "@/lib/types";
 
 const EXAMPLES: (SearchInput & { title: string })[] = [
@@ -46,6 +47,31 @@ export default function Home() {
   const [orgFilter, setOrgFilter] = useState<"all" | "university" | "institute">("all");
   const [extracting, setExtracting] = useState(false);
   const [proposal, setProposal] = useState<Extracted | null>(null);
+  const [equip, setEquip] = useState<EquipmentResult | null>(null);
+  const [equipLoading, setEquipLoading] = useState(false);
+
+  // 후보가 나온 뒤 ZEUS 장비 현황을 따로 불러온다 (후보 검색 시간에 영향 없음)
+  async function loadEquipment(r: SearchResult) {
+    const items = r.normalized.items.filter((i) => i.kind === "equipment").map((i) => ({ label: i.label, inferred: i.inferred }));
+    if (items.length === 0) return;
+    setEquipLoading(true);
+    try {
+      const res = await fetch("/api/equipment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          items,
+          institutions: r.candidates.map((c) => ({ id: c.institutionId, name: c.institution })),
+          names: r.domestic.candidates.map((c) => c.name),
+        }),
+      });
+      setEquip(res.ok ? await res.json() : { status: "failed", items: [], byInstitution: {}, byName: {} });
+    } catch {
+      setEquip({ status: "failed", items: [], byInstitution: {}, byName: {} });
+    } finally {
+      setEquipLoading(false);
+    }
+  }
 
   async function uploadProposal(file: File) {
     setExtracting(true);
@@ -73,6 +99,7 @@ export default function Home() {
     setLoading(true);
     setError(null);
     setResult(null);
+    setEquip(null);
     try {
       const res = await fetch("/api/search", {
         method: "POST",
@@ -82,6 +109,7 @@ export default function Home() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "오류가 발생했습니다.");
       setResult(data);
+      loadEquipment(data);
     } catch (e) {
       setError(e instanceof Error ? e.message : "오류가 발생했습니다.");
     } finally {
@@ -247,7 +275,7 @@ export default function Home() {
           )}
           <div className="space-y-4">
             {shown.map((c, i) => (
-              <CandidateCard key={c.authorId} c={c} rank={i + 1} />
+              <CandidateCard key={c.authorId} c={c} rank={i + 1} inst={equip?.byInstitution[c.institutionId]} />
             ))}
           </div>
           {more.length > 0 && (
@@ -255,7 +283,7 @@ export default function Home() {
               <summary className="cursor-pointer text-sm text-stone-600">후보 {more.length}명 더 보기</summary>
               <div className="mt-4 space-y-4">
                 {more.map((c, i) => (
-                  <CandidateCard key={c.authorId} c={c} rank={i + 6} />
+                  <CandidateCard key={c.authorId} c={c} rank={i + 6} inst={equip?.byInstitution[c.institutionId]} />
                 ))}
               </div>
             </details>
@@ -263,7 +291,9 @@ export default function Home() {
 
           {proposal?.planned_advisor && <AdvisorCheck advisor={proposal.planned_advisor} result={result} />}
 
-          <DomesticSection domestic={result.domestic} nameFilter={nameFilter} />
+          <EquipmentSection equip={equip} loading={equipLoading} />
+
+          <DomesticSection domestic={result.domestic} nameFilter={nameFilter} byName={equip?.byName ?? {}} />
 
           <p className="mt-6 text-xs text-stone-500">
             검색 기준: OpenAlex에 등록된 최근 6년 논문 초록. 검색어: {result.normalized.search_queries.join(" / ")}
@@ -274,7 +304,7 @@ export default function Home() {
   );
 }
 
-function CandidateCard({ c, rank }: { c: Candidate; rank: number }) {
+function CandidateCard({ c, rank, inst }: { c: Candidate; rank: number; inst?: InstitutionEquipment }) {
   return (
     <article className="rounded-xl border border-stone-200 bg-white p-5">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -297,6 +327,7 @@ function CandidateCard({ c, rank }: { c: Candidate; rank: number }) {
       <h3 className="mt-4 text-sm font-semibold">수행 가능성 (초록 기준)</h3>
       <EvidenceList items={c.items} />
       {c.warning && <p className="mt-3 rounded-lg bg-amber-50 p-3 text-xs text-amber-900">⚠ {c.warning}</p>}
+      {inst && <InstitutionEquipLine inst={inst} />}
 
       <h3 className="mt-4 text-sm font-semibold">가까운 논문</h3>
       <ul className="mt-1 space-y-1 text-sm">
@@ -351,7 +382,15 @@ function EvidenceList({ items }: { items: ItemResult[] }) {
   );
 }
 
-function DomesticSection({ domestic, nameFilter }: { domestic: SearchResult["domestic"]; nameFilter: "all" | "korean" | "other" }) {
+function DomesticSection({
+  domestic,
+  nameFilter,
+  byName,
+}: {
+  domestic: SearchResult["domestic"];
+  nameFilter: "all" | "korean" | "other";
+  byName: Record<string, NameEquipment>;
+}) {
   const list = domestic.candidates.filter((c) => nameFilter === "all" || (nameFilter === "korean") === c.koreanName);
   if (domestic.status === "failed") {
     return <p className="mt-8 text-xs text-stone-500">국내 학술지(DBpia) 검색에 실패해 이번 결과에서는 생략했습니다.</p>;
@@ -365,14 +404,14 @@ function DomesticSection({ domestic, nameFilter }: { domestic: SearchResult["dom
       </p>
       <div className="mt-4 space-y-4">
         {list.map((c) => (
-          <DomesticCard key={c.ancId} c={c} />
+          <DomesticCard key={c.ancId} c={c} equip={byName[c.name]} />
         ))}
       </div>
     </section>
   );
 }
 
-function DomesticCard({ c }: { c: DomesticCandidate }) {
+function DomesticCard({ c, equip }: { c: DomesticCandidate; equip?: NameEquipment }) {
   return (
     <article className="rounded-xl border border-stone-200 bg-white p-5">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -398,6 +437,7 @@ function DomesticCard({ c }: { c: DomesticCandidate }) {
       <h4 className="mt-4 text-sm font-semibold">수행 가능성 (초록 기준)</h4>
       <EvidenceList items={c.items} />
       {c.warning && <p className="mt-3 rounded-lg bg-amber-50 p-3 text-xs text-amber-900">⚠ {c.warning}</p>}
+      {equip && <NameEquipLine name={c.name} equip={equip} />}
       <h4 className="mt-4 text-sm font-semibold">가까운 논문</h4>
       <ul className="mt-1 space-y-1 text-sm">
         {c.topPapers.map((p) => (
@@ -411,6 +451,114 @@ function DomesticCard({ c }: { c: DomesticCandidate }) {
         연구실이 고등학생을 받는지는 논문 데이터로 알 수 없으므로 직접 문의가 필요합니다.
       </p>
     </article>
+  );
+}
+
+/** 후보 소속 기관이 ZEUS에 등록한 장비 (연구실이 아니라 기관 전체 기준) */
+function InstitutionEquipLine({ inst }: { inst: InstitutionEquipment }) {
+  return (
+    <div className="mt-3 rounded-lg bg-sky-50 p-3 text-xs text-sky-950">
+      <p className="font-semibold">소속 기관 보유 장비 (ZEUS 등록 기준 · {inst.koName})</p>
+      <ul className="mt-1 space-y-1">
+        {inst.perItem
+          .filter((p) => p.items.length)
+          .map((p) => (
+            <li key={p.label}>
+              <b>{p.label}</b> {p.items.length}대{p.more ? " 이상" : ""}:{" "}
+              {p.items.slice(0, 2).map((x, i) => (
+                <span key={x.id}>
+                  {i > 0 && ", "}
+                  <a className="underline" href={x.url} target="_blank" rel="noreferrer">{x.name}</a>
+                  <span className="text-sky-800/70"> ({x.scope || "활용범위 미상"})</span>
+                </span>
+              ))}{" "}
+              <a className="underline text-sky-800/70" href={p.searchUrl} target="_blank" rel="noreferrer">ZEUS에서 보기</a>
+            </li>
+          ))}
+      </ul>
+      <p className="mt-1 text-sky-800/70">기관 전체 기준이라 이 교수 연구실 장비라는 뜻은 아닙니다.</p>
+    </div>
+  );
+}
+
+/** 국내 후보 이름이 연구책임자인 과제로 구축된 장비 */
+function NameEquipLine({ name, equip }: { name: string; equip: NameEquipment }) {
+  return (
+    <div className="mt-3 rounded-lg bg-sky-50 p-3 text-xs text-sky-950">
+      <p className="font-semibold">{name} 연구책임자 과제로 구축된 장비 (ZEUS)</p>
+      <ul className="mt-1 space-y-1">
+        {equip.map(({ label, equip: e }) => (
+          <li key={e.id}>
+            <b>{label}</b>:{" "}
+            <a className="underline" href={e.url} target="_blank" rel="noreferrer">{e.name}</a> · {e.organ} · {e.scope}
+          </li>
+        ))}
+      </ul>
+      <p className="mt-1 text-sky-800/70">이름만 같은 다른 사람일 수 있습니다. 보유기관을 확인하세요.</p>
+    </div>
+  );
+}
+
+/** 필요한 장비가 어디에 있고 외부에서 쓸 수 있는지 (ZEUS) */
+function EquipmentSection({ equip, loading }: { equip: EquipmentResult | null; loading: boolean }) {
+  if (loading) return <p className="mt-8 text-sm text-stone-500">ZEUS에서 필요한 장비를 보유한 기관을 찾는 중…</p>;
+  if (!equip) return null;
+  if (equip.status === "failed") {
+    return <p className="mt-8 text-xs text-stone-500">장비 검색(ZEUS)에 실패해 이번 결과에서는 생략했습니다.</p>;
+  }
+  if (equip.items.length === 0) return null;
+  return (
+    <section className="mt-10">
+      <h2 className="text-lg font-bold">필요한 장비를 가진 곳 (ZEUS)</h2>
+      <p className="mt-1 text-xs text-stone-500">
+        국가연구시설장비 종합정보시스템(ZEUS)에 등록된 국가 R&amp;D 장비입니다. 지도교수 연구실에 장비가 없어도, 외부 이용이 가능한 장비는 보유기관에 예약해서 쓸 수 있습니다.
+      </p>
+      <div className="mt-4 space-y-4">
+        {equip.items.map((it) => (
+          <article key={it.label} className="rounded-xl border border-stone-200 bg-white p-5">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <h3 className="text-base font-bold">
+                {it.label}
+                {it.inferred && <span className="ml-1 rounded bg-stone-100 px-1 text-xs font-normal text-stone-500">추정</span>}
+              </h3>
+              <a className="text-xs underline" href={it.searchUrl} target="_blank" rel="noreferrer">ZEUS에서 전체 보기</a>
+            </div>
+            {it.total === 0 ? (
+              <p className="mt-1 text-sm text-stone-500">
+                「{it.keyword}」로 등록된 장비가 없습니다. 데이터·소프트웨어이거나 다른 이름으로 등록됐을 수 있습니다.
+              </p>
+            ) : (
+              <>
+                <p className="mt-1 text-sm text-stone-600">
+                  전국 {it.total.toLocaleString()}대 등록 · 외부 이용 가능(공동활용) {it.openTotal.toLocaleString()}대
+                </p>
+                <ul className="mt-3 space-y-3">
+                  {it.top.map((e) => (
+                    <li key={e.id} className="text-sm">
+                      <a className="font-semibold underline" href={e.url} target="_blank" rel="noreferrer">{e.name}</a>
+                      {e.nameEn && <span className="text-xs text-stone-500"> ({e.nameEn})</span>}
+                      <div className="text-xs text-stone-600">
+                        {e.organ} · {e.address.split(" ").slice(0, 2).join(" ")} ·{" "}
+                        <span className={e.scope.includes("서비스") ? "text-emerald-700" : ""}>{e.scope}</span>
+                        {e.status && ` · ${e.status}`}
+                      </div>
+                      <div className="text-xs text-stone-500">
+                        {e.category && <>{e.category}</>}
+                        {e.pi && <> · 구축 과제 연구책임자 {e.pi}{e.piOrgan && e.piOrgan !== e.organ ? ` (${e.piOrgan})` : ""}</>}
+                        {e.phone && <> · 문의 {e.phone}</>}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </article>
+        ))}
+      </div>
+      <p className="mt-3 text-xs text-stone-500">
+        공동활용서비스 장비는 기관이 외부 이용을 정식으로 받는 장비이고, 공동활용허용 장비는 보유 연구실이 쓰지 않는 시간에만 쓸 수 있습니다. 구축 과제 연구책임자는 장비를 산 과제의 책임자로, 지금 장비를 쓰는 연구실과 다를 수 있습니다.
+      </p>
+    </section>
   );
 }
 

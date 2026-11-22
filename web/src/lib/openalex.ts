@@ -25,6 +25,7 @@ export type PI = {
   name: string;
   orcid: string | null;
   institution: string;
+  institutionId: string; // OpenAlex 기관 ID (한국어 기관명 조회용)
   institutionType: string;
 };
 
@@ -71,6 +72,7 @@ export function pickPI(authorships: OAAuthorship[]): PI | null {
     name: a.author.display_name,
     orcid: a.author.orcid,
     institution: inst.display_name,
+    institutionId: inst.id.replace("https://openalex.org/", ""),
     institutionType: inst.type ?? "",
   });
   for (let i = authorships.length - 1; i >= 0; i--) {
