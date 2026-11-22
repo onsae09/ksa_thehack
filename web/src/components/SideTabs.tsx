@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
-import { ExternalLink, SearchX, Unplug } from "lucide-react";
+import { Database, ExternalLink, SearchX, Unplug } from "lucide-react";
 import type { InstitutionEquipment, NameEquipment } from "@/lib/equipment";
-import type { NtisProject, ProjectsResult } from "@/lib/types";
+import type { DatasetsResult, NtisProject, ProjectsResult } from "@/lib/types";
 import { formatWon, type Async, type EquipData } from "./data";
 import { Caveat, ExtLink, Flag, InlineLoading, Inferred, Quiet, SourceLabel } from "./marks";
 
@@ -161,7 +161,7 @@ export function EquipmentTab({ equip, hasEquipItems }: { equip: Async<EquipData>
         국가 R&amp;D로 산 장비 목록입니다. 지도교수 연구실에 장비가 없어도, 외부 이용이 가능한 장비는 보유기관에 예약해서 쓸 수 있습니다.
       </TabIntro>
       {!hasEquipItems ? (
-        <Quiet>이번 질문에는 장비 항목이 없어 ZEUS를 확인하지 않았습니다. 장비·데이터 칸에 적으면 함께 찾습니다.</Quiet>
+        <Quiet>이번 질문에는 장비 항목이 없어 ZEUS를 확인하지 않았습니다. 장비 칸에 적으면 함께 찾습니다.</Quiet>
       ) : equip.state === "loading" || equip.state === "idle" ? (
         <InlineLoading>ZEUS에서 필요한 장비를 보유한 기관을 찾는 중 (5~15초)</InlineLoading>
       ) : equip.state === "failed" ? (
@@ -272,5 +272,80 @@ export function TabIntro({ id, source, title, children }: { id: string; source: 
       </h2>
       <p className="mt-1.5 max-w-3xl text-sm leading-6 text-muted-foreground">{children}</p>
     </header>
+  );
+}
+
+/* ───────── 공공데이터포털 ───────── */
+
+/** 데이터 항목별로 공공데이터포털에서 받을 수 있는 데이터셋 */
+export function DatasetsTab({ async, hasDataItems }: { async: Async<DatasetsResult>; hasDataItems: boolean }) {
+  return (
+    <section aria-labelledby="data-title" className="space-y-4">
+      <TabIntro
+        id="data-title"
+        source={
+          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+            <Database className="size-3.5" aria-hidden="true" />
+            공공데이터포털 (data.go.kr)
+          </span>
+        }
+        title="필요한 데이터를 받을 수 있는 곳"
+      >
+        공공기관이 공개한 데이터셋입니다. 대부분 회원 가입 후 바로 내려받거나 오픈API로 쓸 수 있습니다. 데이터 내용과 기간은 각 링크에서 확인하세요.
+      </TabIntro>
+      {!hasDataItems ? (
+        <Quiet>이번 질문에는 데이터 항목이 없습니다. 데이터 칸에 적거나 방법에서 데이터 분석을 고르면 함께 찾습니다.</Quiet>
+      ) : async.state === "loading" || async.state === "idle" ? (
+        <InlineLoading>공공데이터포털에서 데이터셋을 찾는 중</InlineLoading>
+      ) : async.state === "failed" ? (
+        <Quiet icon={Unplug}>공공데이터포털 검색에 실패해 이번 결과에서는 생략했습니다.</Quiet>
+      ) : (
+        <div className="space-y-3">
+          {async.data.items.map((it) => (
+            <article key={it.label} className="rounded-xl border border-border bg-card">
+              <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3 sm:px-5">
+                <h3 className="text-[15px] font-semibold text-foreground">{it.label}</h3>
+                <a
+                  href={it.searchUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 text-xs text-muted-foreground underline-offset-[3px] hover:text-foreground hover:underline"
+                >
+                  「{it.keyword}」 전체 {it.total.toLocaleString()}건 보기
+                  <ExternalLink className="size-3" aria-hidden="true" />
+                  <span className="sr-only"> (새 창)</span>
+                </a>
+              </header>
+              {it.datasets.length === 0 ? (
+                <p className="px-4 py-3.5 text-sm text-muted-foreground sm:px-5">
+                  「{it.keyword}」로 공개된 데이터셋을 찾지 못했습니다. 연구실·기관에 직접 요청해야 하는 데이터일 수 있습니다.
+                </p>
+              ) : (
+                <ul className="divide-y divide-border">
+                  {it.datasets.map((d) => (
+                    <li key={d.id} className="px-4 py-3 sm:px-5">
+                      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                        <ExtLink href={d.url} className="text-sm font-medium">
+                          {d.title}
+                        </ExtLink>
+                        <span className="text-xs text-muted-foreground">
+                          {d.type}
+                          {d.formats.length > 0 && ` · ${d.formats.join(", ")}`}
+                        </span>
+                      </div>
+                      {d.summary && <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">{d.summary}</p>}
+                      <p className="mt-1 text-xs text-muted-foreground tabular">
+                        {d.provider}
+                        {d.modified && ` · 수정 ${d.modified}`}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </article>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }

@@ -1,16 +1,20 @@
 export const METHOD_OPTIONS = ["시뮬레이션", "실험", "이론", "데이터 분석"] as const;
 
+/** method: 방법 / equipment: 장비·측정 기법 (ZEUS 조회) / data: 데이터셋·DB·소프트웨어 (공공데이터포털 조회) */
+export type ItemKind = "method" | "equipment" | "data";
+
 export type SearchInput = {
   question: string;
   methods: string[];
-  equipment: string; // 쉼표 구분, 비어 있으면 시스템이 추정
+  equipment: string; // 장비·측정 기법. 쉼표 구분, 비어 있으면 시스템이 추정
+  data?: string; // 데이터셋·DB·소프트웨어. 쉼표 구분, 비어 있으면 (데이터 분석일 때) 시스템이 추정
   region?: string; // 시·도, 비어 있으면 전국
 };
 
 /** Claude가 입력을 정리한 결과 */
 export type CheckItem = {
   label: string; // 화면에 보일 이름 (한국어)
-  kind: "method" | "equipment";
+  kind: ItemKind;
   keywords_en: string[]; // 초록에서 찾을 영문 키워드
   keywords_ko: string[]; // 국내 논문(DBpia) 초록에서 찾을 한국어 키워드
   inferred: boolean; // 학생이 쓰지 않고 시스템이 추정한 항목
@@ -45,7 +49,7 @@ export type Evidence = {
 
 export type ItemResult = {
   label: string;
-  kind: "method" | "equipment";
+  kind: ItemKind;
   inferred: boolean;
   evidence: Evidence | null; // null = 초록에서 근거 없음
 };
@@ -156,4 +160,21 @@ export type SearchProgressEvent = {
   stage: SearchStage | "domestic";
   status: "start" | "done";
   detail?: string; // 화면에 그대로 보여줄 한 줄 (예: "논문 232편 · Exa 의미 검색 23편 포함")
+};
+
+/** 공공데이터포털(data.go.kr) 데이터셋 — 데이터 항목을 어디서 받을 수 있는지 */
+export type PublicDataset = {
+  id: string;
+  title: string;
+  provider: string; // 제공기관
+  type: "파일" | "오픈API" | "기타";
+  formats: string[]; // CSV, JSON+XML 등
+  summary: string;
+  modified: string | null; // 수정일
+  url: string;
+};
+
+export type DatasetsResult = {
+  status: "ok" | "failed";
+  items: { label: string; keyword: string; total: number; searchUrl: string; datasets: PublicDataset[] }[];
 };

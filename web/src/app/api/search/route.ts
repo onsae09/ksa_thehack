@@ -18,6 +18,7 @@ export async function POST(req: Request) {
       question: String(body.question ?? "").trim(),
       methods: Array.isArray(body.methods) ? body.methods.map(String) : [],
       equipment: String(body.equipment ?? ""),
+      data: body.data ? String(body.data) : undefined,
       region: body.region ? String(body.region) : undefined,
     };
     fresh = body.fresh === true;
@@ -37,6 +38,7 @@ export async function POST(req: Request) {
     q: input.question.replace(/\s+/g, " "),
     m: [...input.methods].sort(),
     e: input.equipment.split(/[,，、\n]/).map((x) => x.trim()).filter(Boolean).join(","),
+    ...(input.data?.trim() ? { d: input.data.split(/[,，、\n]/).map((x) => x.trim()).filter(Boolean).join(",") } : {}),
   });
   if (!fresh) {
     const hit = cache.get(key) ?? (await readCache<SearchResult>(NS, key))?.value;

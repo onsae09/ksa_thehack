@@ -6,7 +6,7 @@ import type { Candidate, CheckItem, DomesticCandidate } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { TYPE_LABEL, type Async, type SideData } from "./data";
+import { KIND_LABEL, TYPE_LABEL, type Async, type SideData } from "./data";
 import type { EvidenceTable } from "./evidence";
 import { Flag, FitLevel, Inferred, SOURCE, SourceMark, Spinner } from "./marks";
 import { candidateView, domesticView, itemCell } from "./model";
@@ -76,7 +76,7 @@ function ItemHead({ item }: { item: CheckItem }) {
     <TableHead className="h-auto max-w-32 min-w-20 py-2.5 align-bottom whitespace-normal" title={item.label}>
       <span className="line-clamp-3 text-[13px] leading-5 font-medium text-foreground">{item.label}</span>
       <span className="mt-0.5 flex items-center gap-1 text-[11px] font-normal text-muted-foreground">
-        {item.kind === "method" ? "방법" : "장비"}
+        {KIND_LABEL[item.kind]}
         {item.inferred && <Inferred />}
       </span>
     </TableHead>

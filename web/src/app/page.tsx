@@ -3,23 +3,24 @@
 import { useRef, useState } from "react";
 import { AlertCircle, BookOpenCheck, CircleCheck, Info, RotateCcw, SearchX, Unplug, X } from "lucide-react";
 import type { Extracted } from "@/app/api/extract/route";
-import type { LabPagesResult, ProjectsResult, SearchInput, SearchProgressEvent, SearchResult } from "@/lib/types";
+import type { DatasetsResult, LabPagesResult, ProjectsResult, SearchInput, SearchProgressEvent, SearchResult } from "@/lib/types";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CandidateSheet, type Selected } from "@/components/CandidateSheet";
 import { CandidateTable, DomesticTable, SourceLegend, TOP } from "@/components/CandidateTable";
 import { Composer, EXAMPLES, QueryBar } from "@/components/Composer";
-import { IDLE_SIDE, normName, postJSON, type Async, type EquipData, type SideData } from "@/components/data";
+import { IDLE_SIDE, KIND_LABEL, normName, postJSON, type Async, type EquipData, type SideData } from "@/components/data";
 import { Filters, type NameFilter, type OrgFilter, type RegionFilter } from "@/components/Filters";
 import { Caveat, Inferred, Quiet, SourceLabel, Spinner } from "@/components/marks";
-import { EquipmentTab, ProjectsTab, TabIntro } from "@/components/SideTabs";
+import { DatasetsTab, EquipmentTab, ProjectsTab, TabIntro } from "@/components/SideTabs";
 import { SearchProgress } from "@/components/SearchProgress";
 
 export default function Home() {
   const [question, setQuestion] = useState("");
   const [methods, setMethods] = useState<string[]>([]);
   const [equipment, setEquipment] = useState("");
+  const [data, setData] = useState("");
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState<SearchProgressEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -64,6 +65,15 @@ export default function Home() {
       .then((d) => put("projects", d.status === "ok" ? { state: "ok", data: d } : { state: "failed" }))
       .catch(() => put("projects", { state: "failed" }));
 
+    // 데이터 항목: ZEUS가 아니라 공공데이터포털에서 받을 수 있는 데이터셋
+    const dataItems = r.normalized.items.filter((i) => i.kind === "data").map((i) => ({ label: i.label, keywords_ko: i.keywords_ko }));
+    if (dataItems.length) {
+      put("datasets", { state: "loading" });
+      postJSON<DatasetsResult>("/api/datasets", { items: dataItems })
+        .then((d) => put("datasets", d.status === "ok" ? { state: "ok", data: d } : { state: "failed" }))
+        .catch(() => put("datasets", { state: "failed" }));
+    }
+
     put("labs", { state: "loading" });
     postJSON<LabPagesResult>("/api/labpages", {
       candidates: r.candidates.slice(0, TOP).map((c) => ({ authorId: c.authorId, name: c.name, institution: c.institution, institutionId: c.institutionId })),
@@ -88,6 +98,7 @@ export default function Home() {
       setQuestion(ex.question);
       setMethods(ex.methods);
       setEquipment(ex.equipment.join(", "));
+      setData((ex.data ?? []).join(", "));
     } catch (e) {
       setExtractError(e instanceof Error ? e.message : "제안서 분석에 실패했습니다.");
     } finally {
@@ -156,7 +167,8 @@ export default function Home() {
     setQuestion(ex.question);
     setMethods(ex.methods);
     setEquipment(ex.equipment);
-    run({ question: ex.question, methods: ex.methods, equipment: ex.equipment });
+    setData(ex.data ?? "");
+    run({ question: ex.question, methods: ex.methods, equipment: ex.equipment, data: ex.data });
   }
 
   // 지역 외 필터를 먼저 걸고, 남은 후보로 지역별 수를 센다 (선택지에 0명 지역이 안 보이도록)
@@ -172,6 +184,7 @@ export default function Home() {
   const filtered = preRegion.filter((c) => regionFilter === "all" || (regionFilter === "unknown" ? !c.sido : c.sido === regionFilter));
   const domestic = result?.domestic.candidates.filter((c) => nameFilter === "all" || (nameFilter === "korean") === c.koreanName) ?? [];
   const hasEquipItems = !!result?.normalized.items.some((i) => i.kind === "equipment");
+  const hasDataItems = !!result?.normalized.items.some((i) => i.kind === "data");
   const started = lastInput !== null;
   const showComposer = !started || editing;
 
@@ -180,6 +193,8 @@ export default function Home() {
       question={question}
       methods={methods}
       equipment={equipment}
+      data={data}
+      setData={setData}
       setQuestion={setQuestion}
       setMethods={setMethods}
       setEquipment={setEquipment}
@@ -188,7 +203,7 @@ export default function Home() {
       proposal={proposal}
       fileName={fileName}
       onUpload={uploadProposal}
-      onSubmit={() => run({ question, methods, equipment })}
+      onSubmit={() => run({ question, methods, equipment, data: data.trim() || undefined })}
     />
   );
 
@@ -349,7 +364,7 @@ export default function Home() {
                     <span className="mr-1 text-xs text-muted-foreground">확인한 요구 항목</span>
                     {result.normalized.items.map((i) => (
                       <span key={i.label} className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border bg-card px-2 text-xs">
-                        <span className="text-muted-foreground">{i.kind === "method" ? "방법" : "장비"}</span>
+                        <span className="text-muted-foreground">{KIND_LABEL[i.kind]}</span>
                         <span className="font-medium text-foreground">{i.label}</span>
                         {i.inferred && <Inferred />}
                       </span>
@@ -377,6 +392,7 @@ export default function Home() {
                           count={result.domestic.status === "failed" ? undefined : domestic.length}
                         />
                         <Tab value="equipment" label="장비" sub="ZEUS" loading={side.equip.state === "loading"} />
+                        {hasDataItems && <Tab value="datasets" label="데이터" sub="공공데이터" loading={side.datasets.state === "loading"} />}
                         <Tab
                           value="projects"
                           label="국가과제"
@@ -445,6 +461,10 @@ export default function Home() {
                       <EquipmentTab equip={side.equip} hasEquipItems={hasEquipItems} />
                     </TabsContent>
 
+                    <TabsContent value="datasets">
+                      <DatasetsTab async={side.datasets} hasDataItems={hasDataItems} />
+                    </TabsContent>
+
                     <TabsContent value="projects">
                       <ProjectsTab async={side.projects} />
                     </TabsContent>
@@ -463,7 +483,13 @@ export default function Home() {
         )}
       </main>
 
-      <CandidateSheet selected={selected} onClose={() => setSelected(null)} side={side} question={lastInput?.question ?? ""} />
+      <CandidateSheet
+        selected={selected}
+        onClose={() => setSelected(null)}
+        side={side}
+        question={lastInput?.question ?? ""}
+        checkItems={result?.normalized.items}
+      />
     </>
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { ArrowRight, ArrowUp, Check, FileCheck2, FileUp, Loader2, Microscope, Pencil, Plus, RotateCcw } from "lucide-react";
+import { ArrowRight, ArrowUp, Check, Database, FileCheck2, FileUp, Loader2, Microscope, Pencil, Plus, RotateCcw } from "lucide-react";
 import type { Extracted } from "@/app/api/extract/route";
 import { METHOD_OPTIONS, type SearchInput } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -25,7 +25,8 @@ export const EXAMPLES: (SearchInput & { title: string })[] = [
     title: "지하철 혼잡도 예측",
     question: "그래프 신경망으로 지하철 역별 혼잡도를 예측할 수 있는가",
     methods: ["데이터 분석", "시뮬레이션"],
-    equipment: "교통카드 승하차 데이터",
+    equipment: "",
+    data: "교통카드 승하차 데이터",
   },
 ];
 
@@ -33,9 +34,11 @@ export type ComposerProps = {
   question: string;
   methods: string[];
   equipment: string;
+  data: string;
   setQuestion: (v: string) => void;
   setMethods: (v: string[]) => void;
   setEquipment: (v: string) => void;
+  setData: (v: string) => void;
   loading: boolean;
   extracting: boolean;
   proposal: Extracted | null;
@@ -146,8 +149,8 @@ export function Composer(p: ComposerProps) {
 
         <div className="flex items-start gap-2.5 border-t border-dashed border-border px-5 py-2.5 sm:px-6">
           <Microscope className="mt-2.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-          <label htmlFor="eq" className="mt-2 shrink-0 text-sm font-medium text-foreground/80">
-            장비·데이터
+          <label htmlFor="eq" className="mt-2 w-14 shrink-0 text-sm font-medium text-foreground/80">
+            장비
           </label>
           <textarea
             id="eq"
@@ -160,13 +163,38 @@ export function Composer(p: ComposerProps) {
                 e.currentTarget.form?.requestSubmit();
               }
             }}
-            placeholder="선택 · 예: 고속카메라, 원자힘현미경"
+            placeholder="선택 · 실험 장비·측정 기법 (예: 고속카메라, 원자힘현미경)"
             aria-describedby="eq-help"
             className="min-h-9 min-w-0 flex-1 resize-none bg-transparent py-1.5 text-[15px] leading-6 text-foreground outline-none [field-sizing:content] placeholder:text-muted-foreground/80"
           />
         </div>
         <p id="eq-help" className="sr-only">
-          비워 두면 주제에서 추정하고, 결과에 추정으로 표시합니다.
+          비워 두면 주제에서 추정하고, 결과에 추정으로 표시합니다. 보유 기관은 국가연구장비(ZEUS)에서 찾습니다.
+        </p>
+
+        <div className="flex items-start gap-2.5 border-t border-dashed border-border px-5 py-2.5 sm:px-6">
+          <Database className="mt-2.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+          <label htmlFor="dt" className="mt-2 w-14 shrink-0 text-sm font-medium text-foreground/80">
+            데이터
+          </label>
+          <textarea
+            id="dt"
+            rows={1}
+            value={p.data}
+            onChange={(e) => p.setData(e.target.value.replace(/\n/g, " "))}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+                e.preventDefault();
+                e.currentTarget.form?.requestSubmit();
+              }
+            }}
+            placeholder="선택 · 데이터셋·DB (예: 교통카드 승하차 데이터, 기상청 관측자료)"
+            aria-describedby="dt-help"
+            className="min-h-9 min-w-0 flex-1 resize-none bg-transparent py-1.5 text-[15px] leading-6 text-foreground outline-none [field-sizing:content] placeholder:text-muted-foreground/80"
+          />
+        </div>
+        <p id="dt-help" className="sr-only">
+          데이터는 공공데이터포털에서 받을 수 있는 데이터셋을 찾습니다. 비워 두고 데이터 분석을 고르면 주제에서 추정합니다.
         </p>
       </div>
 
@@ -264,11 +292,14 @@ export function QueryBar({
   onEdit: () => void;
   onFresh: () => void;
 }) {
-  const equipment = input.equipment
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-  const cond = `${input.methods.join(" · ")}${equipment.length > 0 ? ` — ${equipment.join(", ")}` : " — 장비는 주제에서 추정"}`;
+  const list = (s?: string) =>
+    (s ?? "")
+      .split(",")
+      .map((x) => x.trim())
+      .filter(Boolean);
+  const equipment = list(input.equipment);
+  const data = list(input.data);
+  const cond = `${input.methods.join(" · ")}${equipment.length > 0 ? ` — 장비 ${equipment.join(", ")}` : " — 장비는 주제에서 추정"}${data.length > 0 ? ` — 데이터 ${data.join(", ")}` : ""}`;
   return (
     <div className="flex items-center gap-3">
       <span className="hidden size-9 shrink-0 place-items-center rounded-lg bg-deep text-deep-foreground sm:grid" aria-hidden="true">

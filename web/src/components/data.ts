@@ -2,7 +2,7 @@
  * 화면 쪽 데이터 헬퍼. (서버 로직은 src/lib — 여기서는 받아온 값을 보여주기 좋게만 다룬다)
  */
 import type { EquipmentResult, NameEquipment } from "@/lib/equipment";
-import type { LabPagesResult, ProjectsResult } from "@/lib/types";
+import type { DatasetsResult, LabPagesResult, ProjectsResult } from "@/lib/types";
 
 /** 검색 결과가 나온 뒤 따로 불러오는 섹션의 상태 */
 export type Async<T> = { state: "idle" } | { state: "loading" } | { state: "ok"; data: T } | { state: "failed" };
@@ -14,9 +14,18 @@ export type SideData = {
   equip: Async<EquipData>;
   projects: Async<ProjectsResult>;
   labs: Async<LabPagesResult>;
+  datasets: Async<DatasetsResult>;
 };
 
-export const IDLE_SIDE: SideData = { equip: { state: "idle" }, projects: { state: "idle" }, labs: { state: "idle" } };
+export const IDLE_SIDE: SideData = {
+  equip: { state: "idle" },
+  projects: { state: "idle" },
+  labs: { state: "idle" },
+  datasets: { state: "idle" },
+};
+
+/** 요구 항목 종류 표시 */
+export const KIND_LABEL: Record<string, string> = { method: "방법", equipment: "장비", data: "데이터" };
 
 export async function postJSON<T>(url: string, body: unknown, timeoutMs = 120_000): Promise<T> {
   const res = await fetch(url, {

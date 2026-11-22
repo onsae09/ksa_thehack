@@ -17,6 +17,8 @@ const Schema = z.object({
   given: z.array(z.object({ label: z.string(), keywords_en: z.array(z.string()), keywords_ko: z.array(z.string()) })),
   // 장비 칸이 비었을 때만 채운다
   inferred_equipment: z.array(z.object({ label: z.string(), keywords_en: z.array(z.string()), keywords_ko: z.array(z.string()) })),
+  // 데이터 칸이 비었고 데이터 분석을 할 때만 채운다
+  inferred_data: z.array(z.object({ label: z.string(), keywords_en: z.array(z.string()), keywords_ko: z.array(z.string()) })),
 });
 
 const SYSTEM = `You prepare a Korean high-school research plan for searching academic papers in OpenAlex.
@@ -30,7 +32,8 @@ Return:
 - method_search_queries_ko: exactly 1 short Korean query for the key equipment/technique (e.g. "디지털 홀로그래피").
 - ntis_queries_ko: exactly 3 Korean queries for searching Korean national R&D project TITLES (NTIS). The search matches any word, so each query must be 1-2 formal technical nouns that would appear in a government project title, not student phrasing (e.g. for a table-tennis spin study: "회전체 공기역학", "마그누스 효과", "유동 가시화"; for holography: "디지털 홀로그래피", "공간 광변조기", "빔 성형"). Mix topic and method terms. No generic words like "분석", "연구", "모델링", "데이터" on their own.
 - given: one entry for EVERY label listed under "ITEMS", in the same order, label copied exactly.
-- inferred_equipment: only if the student left equipment empty, 1-3 equipment/tools/data the research most likely needs, with a short Korean label. Otherwise an empty array.
+- inferred_equipment: only if "Equipment field" says EMPTY, 1-3 physical instruments or measurement techniques the research most likely needs (e.g. 고속카메라, 원자힘현미경), with a short Korean label. Never datasets or software here. Otherwise an empty array.
+- inferred_data: only if "Data field" says EMPTY AND the methods include 데이터 분석, 1-2 datasets/databases the research most likely needs (e.g. 교통카드 승하차 데이터, 기상 관측 자료), with a short Korean label as it would be named on a Korean open-data portal. Otherwise an empty array.
 
 keywords_en rules (used to find evidence sentences in abstracts with a case-insensitive word match):
 - 3-6 lowercase English terms that name the METHOD or EQUIPMENT ITSELF, e.g. for high-speed camera: "high-speed camera", "high-speed video", "high speed imaging", "fps"; for simulation: "simulation", "simulated", "numerical model", "finite element", "cfd".
@@ -74,11 +77,13 @@ const DEFAULT_METHOD_KEYWORDS: Record<string, string[]> = {
 
 export async function normalize(input: SearchInput): Promise<Normalized> {
   const equipment = splitEquipment(input.equipment);
-  const givenLabels = [...input.methods, ...equipment];
+  const data = splitEquipment(input.data ?? "");
+  const givenLabels = [...input.methods, ...equipment, ...data];
   const user = [
     `연구 질문: ${input.question}`,
-    `ITEMS (methods then equipment): ${givenLabels.map((l) => `"${l}"`).join(", ")}`,
+    `ITEMS (methods, then equipment, then data): ${givenLabels.map((l) => `"${l}"`).join(", ")}`,
     `Equipment field: ${equipment.length ? "filled" : "EMPTY — infer equipment"}`,
+    `Data field: ${data.length ? "filled" : input.methods.includes("데이터 분석") ? "EMPTY — infer data" : "EMPTY — do not infer data"}`,
   ].join("\n");
 
   const res = await client.messages.parse({
@@ -111,6 +116,20 @@ export async function normalize(input: SearchInput): Promise<Normalized> {
       inferred: false,
       keywords_en: cleanKeywords(kwByLabel.get(e) ?? []),
       keywords_ko: cleanKeywords([...(koByLabel.get(e) ?? []), e]),
+    })),
+    ...data.map((e) => ({
+      label: e,
+      kind: "data" as const,
+      inferred: false,
+      keywords_en: cleanKeywords(kwByLabel.get(e) ?? []),
+      keywords_ko: cleanKeywords([...(koByLabel.get(e) ?? []), e]),
+    })),
+    ...(data.length === 0 && input.methods.includes("데이터 분석") ? out.inferred_data.slice(0, 2) : []).map((e) => ({
+      label: e.label,
+      kind: "data" as const,
+      inferred: true,
+      keywords_en: cleanKeywords(e.keywords_en),
+      keywords_ko: cleanKeywords(e.keywords_ko),
     })),
     ...(equipment.length === 0 ? out.inferred_equipment.slice(0, 3) : []).map((e) => ({
       label: e.label,

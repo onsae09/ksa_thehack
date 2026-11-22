@@ -11,6 +11,7 @@ const Schema = z.object({
   title: z.string(),
   methods: z.array(z.enum(["시뮬레이션", "실험", "이론", "데이터 분석"])),
   equipment: z.array(z.string()),
+  data: z.array(z.string()),
   planned_advisor: z.object({ name: z.string(), name_en: z.string(), affiliation: z.string() }).nullable(),
 });
 
@@ -24,7 +25,8 @@ Absolute rule: every string you return must be copied character-for-character fr
 Return:
 - title: the Korean research title (연구 주제 – 국문) exactly as written.
 - methods: which of 시뮬레이션 / 실험 / 이론 / 데이터 분석 the plan explicitly says it uses (this is a selection, not text).
-- equipment: 2-6 instruments, techniques, or datasets the plan needs, each copied exactly as the document writes it (e.g. if the document says "공간 광변조기(SLM)" return exactly "공간 광변조기(SLM)"). Prefer the 연구키워드 section and the methods section. One item per string; do not merge items. Skip plain generic items every lab has ("레이저", "카메라", "렌즈") unless the document names a special type.
+- equipment: 0-6 physical instruments or measurement/fabrication techniques the plan needs, each copied exactly as the document writes it (e.g. if the document says "공간 광변조기(SLM)" return exactly "공간 광변조기(SLM)"). Prefer the 연구키워드 section and the methods section. One item per string; do not merge items. Skip plain generic items every lab has ("레이저", "카메라", "렌즈") unless the document names a special type. Datasets and software do NOT go here.
+- data: 0-4 datasets, databases, or data sources the plan needs (e.g. "교통카드 승하차 데이터", "기상청 ASOS 관측자료", "PDB 단백질 구조"), copied exactly as written. Software tools (e.g. COMSOL, Python) are not data; skip them.
 - planned_advisor: the external professor the team plans to contact, if written. name and affiliation copied exactly as written (affiliation = university + department as written); name_en = the usual English romanization used on papers (e.g. "YongKeun Park") — the only field you may produce yourself. null if none.
 
 Do NOT include any student names, IDs, phone numbers or emails.`;

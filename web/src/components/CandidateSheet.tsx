@@ -2,12 +2,13 @@
 
 import type { ReactNode } from "react";
 import { Check, House, Info, Minus, Search } from "lucide-react";
-import type { Candidate, DomesticCandidate, ItemResult } from "@/lib/types";
+import type { Candidate, CheckItem, DomesticCandidate, ItemResult } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { hostOf, type Async, type SideData } from "./data";
+import { KIND_LABEL, hostOf, type Async, type SideData } from "./data";
 import { DraftParagraph } from "./DraftParagraph";
 import { EmailFinder } from "./EmailFinder";
+import { FullTextEvidence } from "./FullTextEvidence";
 import { coveredCount, type Cell, type EvidenceTable } from "./evidence";
 import { CandidateFlags, orgLine } from "./CandidateTable";
 import { CandidateProjects, InstitutionEquipDetail, PiEquipDetail } from "./SideTabs";
@@ -23,11 +24,14 @@ export function CandidateSheet({
   onClose,
   side,
   question,
+  checkItems,
 }: {
   selected: Selected;
   onClose: () => void;
   side: SideData;
   question: string;
+  /** 검색 결과의 normalized.items (본문 확인용 키워드). 없으면 본문 확인 칸을 숨긴다 */
+  checkItems?: CheckItem[];
 }) {
   return (
     <Sheet open={!!selected} onOpenChange={(o) => !o && onClose()}>
@@ -35,7 +39,7 @@ export function CandidateSheet({
         side="right"
         className="w-full gap-0 border-l-border bg-background p-0 data-[side=right]:w-full data-[side=right]:sm:max-w-xl md:data-[side=right]:max-w-2xl"
       >
-        {selected?.kind === "openalex" && <OpenAlexDetail c={selected.c} rank={selected.rank} side={side} question={question} />}
+        {selected?.kind === "openalex" && <OpenAlexDetail c={selected.c} rank={selected.rank} side={side} question={question} checkItems={checkItems} />}
         {selected?.kind === "domestic" && <DomesticDetail c={selected.c} side={side} question={question} />}
       </SheetContent>
     </Sheet>
@@ -111,7 +115,7 @@ function EvidenceMatrix({ table, caption }: { table: EvidenceTable; caption: str
                 <th scope="row" className="py-2.5 pr-2 text-left font-normal">
                   <span className="flex flex-wrap items-center gap-1.5">
                     <span className="font-medium text-foreground">{r.item.label}</span>
-                    <span className="text-[11px] text-muted-foreground">{r.item.kind === "method" ? "방법" : "장비"}</span>
+                    <span className="text-[11px] text-muted-foreground">{KIND_LABEL[r.item.kind]}</span>
                     {r.item.inferred && <Inferred />}
                   </span>
                 </th>
@@ -237,7 +241,7 @@ function Fits({ c }: { c: { fit: Candidate["fit"]; T: number; methodFit: Candida
 
 /* ───────── OpenAlex 후보 ───────── */
 
-function OpenAlexDetail({ c, rank, side, question }: { c: Candidate; rank: number; side: SideData; question: string }) {
+function OpenAlexDetail({ c, rank, side, question, checkItems }: { c: Candidate; rank: number; side: SideData; question: string; checkItems?: CheckItem[] }) {
   const v = candidateView(c, side);
   const hasEquipItems = c.items.some((i) => i.kind === "equipment");
   return (
@@ -299,6 +303,12 @@ function OpenAlexDetail({ c, rank, side, question }: { c: Candidate; rank: numbe
           {c.warning && <WarnNote>{c.warning}</WarnNote>}
         </div>
       </Section>
+
+      {!!checkItems?.length && (
+        <Section title={<SourceLabel source="paper" className="text-sm font-semibold text-foreground">논문 본문에서 확인</SourceLabel>} aside="공개 PDF만">
+          <FullTextEvidence key={c.authorId} authorId={c.authorId} papers={c.topPapers} items={checkItems} abstractItems={c.items} auto={rank <= 5} />
+        </Section>
+      )}
 
       {v.lab && v.lab.equipment.length > 0 && (
         <Section title={<SourceLabel source="lab" className="text-sm font-semibold text-foreground">연구실 페이지에서 확인</SourceLabel>}>
