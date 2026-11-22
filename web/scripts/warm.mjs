@@ -11,7 +11,7 @@
 const EXAMPLES = [
   { question: "탁구공의 회전이 반발 궤적에 주는 영향을 모델링할 수 있는가", methods: ["시뮬레이션", "실험"], equipment: "고속카메라" },
   { question: "미세플라스틱 농도가 담수 동물플랑크톤의 성장과 생존에 미치는 영향", methods: ["실험", "데이터 분석"], equipment: "" },
-  { question: "그래프 신경망으로 지하철 역별 혼잡도를 예측할 수 있는가", methods: ["데이터 분석", "시뮬레이션"], equipment: "교통카드 승하차 데이터" },
+  { question: "그래프 신경망으로 지하철 역별 혼잡도를 예측할 수 있는가", methods: ["데이터 분석", "시뮬레이션"], equipment: "", data: "교통카드 승하차 데이터" },
 ];
 
 const args = process.argv.slice(2);
