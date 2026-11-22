@@ -53,6 +53,8 @@ export type ItemResult = {
 export type Candidate = {
   authorId: string;
   name: string;
+  /** 한글 이름 (OpenAlex 저자 기록의 한글 표기가 영문 이름과 로마자로 맞을 때만). 화면은 연구실 페이지·NTIS·ZEUS 이름으로도 보충 */
+  nameKo?: string | null;
   orcid: string | null;
   institution: string;
   institutionId: string;
@@ -146,4 +148,12 @@ export type LabPage = {
 export type LabPagesResult = {
   status: "ok" | "disabled" | "failed"; // disabled: EXA_API_KEY 없음
   byCandidate: Record<string, LabPage>;
+};
+
+/** /api/search 진행 이벤트 (stream: true일 때 한 줄씩 보낸다). 숫자는 실제 값 */
+export type SearchStage = "normalize" | "collect" | "score" | "evidence";
+export type SearchProgressEvent = {
+  stage: SearchStage | "domestic";
+  status: "start" | "done";
+  detail?: string; // 화면에 그대로 보여줄 한 줄 (예: "논문 232편 · Exa 의미 검색 23편 포함")
 };

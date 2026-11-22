@@ -205,7 +205,7 @@ export function CandidateTable({
                         className="text-left text-[15px] font-semibold text-foreground underline-offset-4 group-hover:text-primary group-hover:underline focus-visible:underline"
                       >
                         {c.name}
-                        {v.lab?.koName && v.lab.koName !== c.name && <span className="ml-1.5 font-normal text-foreground/70">{v.lab.koName}</span>}
+                        {v.ko && v.ko.name !== c.name && <span className="ml-1.5 font-normal text-foreground/70" title={`한글 이름: ${v.ko.source}`}>{v.ko.name}</span>}
                       </button>
                       <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{orgLine(c)}</p>
                       {(c.affiliation?.status === "stale" || !c.koreanName) && (
@@ -256,7 +256,7 @@ export function CandidateTable({
                 title={
                   <>
                     {c.name}
-                    {v.lab?.koName && v.lab.koName !== c.name && <span className="ml-1.5 font-normal text-foreground/70">{v.lab.koName}</span>}
+                    {v.ko && v.ko.name !== c.name && <span className="ml-1.5 font-normal text-foreground/70" title={`한글 이름: ${v.ko.source}`}>{v.ko.name}</span>}
                   </>
                 }
                 sub={orgLine(c)}

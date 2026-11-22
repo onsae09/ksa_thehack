@@ -1,6 +1,6 @@
 import { runSearch } from "@/lib/pipeline";
 import { cacheKey, readCache, writeCache } from "@/lib/diskcache";
-import type { SearchInput, SearchResult } from "@/lib/types";
+import type { SearchInput, SearchProgressEvent, SearchResult } from "@/lib/types";
 
 export const maxDuration = 60;
 
@@ -11,6 +11,7 @@ const NS = "search-v1"; // 결과 형식이 바뀌면 올려서 예전 캐시를
 export async function POST(req: Request) {
   let input: SearchInput;
   let fresh = false;
+  let stream = false;
   try {
     const body = await req.json();
     input = {
@@ -20,6 +21,7 @@ export async function POST(req: Request) {
       region: body.region ? String(body.region) : undefined,
     };
     fresh = body.fresh === true;
+    stream = body.stream === true; // true: 진행 이벤트를 한 줄씩(NDJSON) 보내고 마지막 줄에 결과
   } catch {
     return Response.json({ error: "잘못된 요청입니다." }, { status: 400 });
   }
@@ -40,19 +42,57 @@ export async function POST(req: Request) {
     const hit = cache.get(key) ?? (await readCache<SearchResult>(NS, key))?.value;
     if (hit) {
       cache.set(key, hit);
-      return Response.json(hit);
+      return stream ? ndjson(async (send) => send({ type: "result", result: hit })) : Response.json(hit);
     }
   }
 
-  try {
-    const result = await runSearch(input);
+  const search = async (onProgress?: (e: SearchProgressEvent) => void) => {
+    const result = await runSearch(input, onProgress);
     // 저장본에는 처음 검색한 시각을 담는다 (다음 요청에서 "저장된 결과" 표시용). 이번 응답에는 없음
     const saved: SearchResult = { ...result, cachedAt: new Date().toISOString() };
     await writeCache(NS, key, saved);
     cache.set(key, saved);
-    return Response.json(result);
+    return result;
+  };
+
+  if (stream) {
+    return ndjson(async (send) => {
+      try {
+        const result = await search((e) => send({ type: "progress", ...e }));
+        send({ type: "result", result });
+      } catch (e) {
+        console.error(e);
+        send({ type: "error", error: e instanceof Error ? e.message : "알 수 없는 오류" });
+      }
+    });
+  }
+
+  try {
+    return Response.json(await search());
   } catch (e) {
     console.error(e);
     return Response.json({ error: e instanceof Error ? e.message : "알 수 없는 오류" }, { status: 500 });
   }
+}
+
+/** 한 줄에 JSON 하나씩 흘려보내는 응답. 프록시가 모아두지 않게 버퍼링을 끈다 */
+function ndjson(run: (send: (obj: unknown) => void) => Promise<void>): Response {
+  const enc = new TextEncoder();
+  const body = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const send = (obj: unknown) => controller.enqueue(enc.encode(JSON.stringify(obj) + "\n"));
+      try {
+        await run(send);
+      } finally {
+        controller.close();
+      }
+    },
+  });
+  return new Response(body, {
+    headers: {
+      "Content-Type": "application/x-ndjson; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      "X-Accel-Buffering": "no",
+    },
+  });
 }

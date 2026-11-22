@@ -249,9 +249,9 @@ function OpenAlexDetail({ c, rank, side, question }: { c: Candidate; rank: numbe
           </p>
           <SheetTitle className="mt-1 font-serif text-2xl leading-tight font-semibold">
             {c.name}
-            {v.lab?.koName && v.lab.koName !== c.name && <span className="ml-2 font-sans text-lg font-medium text-foreground/70">{v.lab.koName}</span>}
+            {v.ko && v.ko.name !== c.name && <span className="ml-2 font-sans text-lg font-medium text-foreground/70">{v.ko.name}</span>}
           </SheetTitle>
-          {v.lab?.koName && <p className="mt-0.5 text-[11px] text-src-lab">한글 이름은 연구실 페이지 표기</p>}
+          {v.ko && <p className="mt-0.5 text-xs text-muted-foreground">한글 이름은 {v.ko.source}</p>}
           <SheetDescription className="mt-1 text-sm">{orgLine(c)}</SheetDescription>
           <div className="mt-2.5 flex flex-wrap gap-1.5">
             <CandidateFlags c={c} full />
@@ -285,7 +285,7 @@ function OpenAlexDetail({ c, rank, side, question }: { c: Candidate; rank: numbe
         </div>
         <div className="mt-3 space-y-3">
           <EmailFinder name={c.name} institution={c.institution} hint={c.topPapers[0]?.title ?? ""} />
-          <DraftParagraph c={c} question={question} koName={v.lab?.koName ?? undefined} />
+          <DraftParagraph c={c} question={question} koName={v.ko?.name ?? undefined} />
         </div>
       </Section>
 

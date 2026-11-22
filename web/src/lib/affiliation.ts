@@ -5,27 +5,45 @@
  * - unknown: 기록 없음 또는 조회 실패
  * OpenAlex는 동명이인 기록이 섞이는 일이 있어(예: 한국 교수 기록에 중국 기관) 순위에는 쓰지 않고 표시만 한다.
  */
+import { koreanNameMatches } from "./kornames";
 import type { AffiliationCheck } from "./types";
 
 type OAAffiliation = { institution: { id: string; display_name: string; country_code: string | null }; years: number[] };
 
 const UNKNOWN: AffiliationCheck = { status: "unknown", lastYear: null, note: null };
 
+/**
+ * 소속 확인과 함께 한글 이름도 돌려준다 (같은 저자 요청 1번).
+ * 한글 이름: OpenAlex 저자 기록의 다른 이름 중 한글 표기가 영문 이름과 로마자 표기로 맞는 것만
+ * (기록에 엉뚱한 이름이 섞이는 일이 있다. 예: Heung Soo Kim 기록에 "김재환")
+ */
 export async function checkAffiliations(
-  people: { authorId: string; institutionId: string }[],
+  people: { authorId: string; institutionId: string; name?: string }[],
+  koNames: Map<string, string> = new Map(),
 ): Promise<Map<string, AffiliationCheck>> {
   const out = new Map<string, AffiliationCheck>();
   if (people.length === 0) return out;
   try {
     const params = new URLSearchParams({
       filter: `id:${[...new Set(people.map((p) => p.authorId))].join("|")}`,
-      select: "id,affiliations",
+      select: "id,affiliations,display_name_alternatives",
       per_page: "50",
     });
     if (process.env.OPENALEX_API_KEY) params.set("api_key", process.env.OPENALEX_API_KEY);
     const res = await fetch(`https://api.openalex.org/authors?${params}`, { signal: AbortSignal.timeout(10000) });
     if (!res.ok) throw new Error(`OpenAlex ${res.status}`);
-    const data = (await res.json()) as { results: { id: string; affiliations: OAAffiliation[] | null }[] };
+    const data = (await res.json()) as {
+      results: { id: string; affiliations: OAAffiliation[] | null; display_name_alternatives?: string[] | null }[];
+    };
+    const alts = new Map(data.results.map((r) => [r.id.replace("https://openalex.org/", ""), r.display_name_alternatives ?? []]));
+    for (const p of people) {
+      if (!p.name) continue;
+      // "Heung-Soo 김흥수Kim"처럼 섞인 표기에서도 한글 덩어리만 뽑아 검사
+      const ko = (alts.get(p.authorId) ?? [])
+        .flatMap((n) => n.match(/[가-힣]{2,4}/g) ?? [])
+        .find((n) => koreanNameMatches(n, p.name!));
+      if (ko) koNames.set(p.authorId, ko);
+    }
     const byAuthor = new Map(data.results.map((r) => [r.id.replace("https://openalex.org/", ""), r.affiliations ?? []]));
     const now = new Date().getFullYear();
 

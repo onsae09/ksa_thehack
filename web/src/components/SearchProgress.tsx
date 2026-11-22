@@ -5,22 +5,30 @@ import { cn } from "@/lib/utils";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useElapsed } from "./useElapsed";
+import type { SearchProgressEvent, SearchStage } from "@/lib/types";
 
 /**
- * /api/search는 진행 상황을 흘려보내지 않는다. 단계는 "보통 이쯤 걸린다"는 경과 시간 기준이고,
- * 화면에도 그렇게 적는다 (실제 진행률인 척하지 않는다).
+ * /api/search가 단계마다 보내는 진행 이벤트(stream: true)를 그대로 보여준다.
+ * 끝난 단계에는 서버가 보낸 실제 수치(논문 몇 편, 후보 몇 명 등)를 적는다.
  */
-const STAGES = [
-  { at: 0, title: "검색어 정리", desc: "질문을 검색어와 필요한 방법·장비 목록으로 나눕니다" },
-  { at: 5, title: "논문 수집", desc: "OpenAlex·DBpia에서 최근 6년 한국 소속 논문을 모읍니다" },
-  { at: 15, title: "적합도 계산", desc: "논문마다 주제·방법 유사도를 재고 책임저자별로 묶습니다" },
-  { at: 28, title: "근거 찾기", desc: "초록에서 방법·장비가 실제로 적힌 문장을 찾습니다" },
+const STAGES: { key: SearchStage; title: string; desc: string }[] = [
+  { key: "normalize", title: "검색어 정리", desc: "질문을 검색어와 필요한 방법·장비 목록으로 나눕니다" },
+  { key: "collect", title: "논문 수집", desc: "OpenAlex·DBpia에서 최근 6년 한국 소속 논문을 모읍니다" },
+  { key: "score", title: "적합도 계산", desc: "논문마다 주제·방법 유사도를 재고 책임저자별로 묶습니다" },
+  { key: "evidence", title: "근거 찾기", desc: "초록에서 방법·장비가 실제로 적힌 문장을 찾습니다" },
 ];
 
-export function SearchProgress() {
+export function SearchProgress({ events }: { events: SearchProgressEvent[] }) {
   const t = useElapsed();
-  const current = STAGES.reduce((acc, s, i) => (t >= s.at ? i : acc), 0);
-  const progress = Math.min(94, (1 - Math.exp(-t / 22)) * 100);
+  const doneOf = (k: string) => events.find((e) => e.stage === k && e.status === "done");
+  const started = (k: string) => events.some((e) => e.stage === k);
+  const states = STAGES.map((s, i) =>
+    doneOf(s.key) ? "done" : started(s.key) || (i === 0 && events.length === 0) ? "now" : "next",
+  );
+  const doneCount = states.filter((x) => x === "done").length;
+  // 끝난 단계 수 기준 + 진행 중인 단계는 절반만 (실제 단계 진행에 맞춰 움직인다)
+  const progress = Math.min(98, ((doneCount + (states.includes("now") ? 0.5 : 0)) / STAGES.length) * 100);
+  const domestic = doneOf("domestic");
   const slow = t > 60;
 
   return (
@@ -34,12 +42,13 @@ export function SearchProgress() {
             {Math.floor(t)}초
           </span>
         </div>
-        <Progress value={progress} className="mt-3 h-1" aria-label="경과 시간 기준 진행 표시" />
+        <Progress value={progress} className="mt-3 h-1" aria-label={`${STAGES.length}단계 중 ${doneCount}단계 끝남`} />
         <ol className="mt-4 grid gap-3 sm:grid-cols-4 sm:gap-4" role="status" aria-live="polite">
           {STAGES.map((s, i) => {
-            const state = i < current ? "done" : i === current ? "now" : "next";
+            const state = states[i];
+            const detail = doneOf(s.key)?.detail;
             return (
-              <li key={s.title} className="flex gap-2.5" aria-current={state === "now" ? "step" : undefined}>
+              <li key={s.key} className="flex gap-2.5" aria-current={state === "now" ? "step" : undefined}>
                 <span
                   className={cn(
                     "mt-px grid size-5 shrink-0 place-items-center rounded-full",
@@ -53,22 +62,30 @@ export function SearchProgress() {
                   ) : state === "now" ? (
                     <Loader2 className="size-3 animate-spin" strokeWidth={2.5} aria-hidden="true" />
                   ) : (
-                    <span className="text-[10px] font-semibold tabular">{i + 1}</span>
+                    <span className="text-xs font-semibold tabular">{i + 1}</span>
                   )}
                   <span className="sr-only">{state === "done" ? "끝남" : state === "now" ? "진행 중" : "대기"}</span>
                 </span>
                 <span className="min-w-0">
                   <span className={cn("block text-sm font-medium", state === "next" ? "text-muted-foreground" : "text-foreground")}>{s.title}</span>
-                  <span className="block text-xs leading-5 text-muted-foreground">{s.desc}</span>
+                  <span className={cn("block text-xs leading-5", detail ? "text-foreground/80 tabular" : "text-muted-foreground")}>
+                    {detail ?? s.desc}
+                  </span>
                 </span>
               </li>
             );
           })}
         </ol>
-        <p className="mt-4 border-t border-border pt-3 text-xs leading-5 text-muted-foreground">
-          {slow
-            ? "평소보다 오래 걸리고 있어요. 논문이 많은 주제는 1분 넘게 걸릴 수 있습니다."
-            : "보통 10초~1분 걸립니다. 서버가 진행 상황을 따로 알려주지 않아, 단계는 보통 걸리는 시간을 기준으로 보여줍니다."}
+        <p className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border pt-3 text-xs leading-5 text-muted-foreground">
+          <span>
+            {slow ? "평소보다 오래 걸리고 있어요. 논문이 많은 주제는 1분 넘게 걸릴 수 있습니다" : "보통 10초~1분 걸립니다"}
+          </span>
+          {domestic?.detail && (
+            <span className="inline-flex items-center gap-1 text-foreground/80">
+              <Check className="size-3" aria-hidden="true" />
+              {domestic.detail}
+            </span>
+          )}
         </p>
       </div>
 

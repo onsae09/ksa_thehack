@@ -7,7 +7,7 @@ import { axisScore, fitLabel, round3, W_METHOD, W_TOPIC } from "./scoring";
 import { normalize } from "./normalize";
 import { exaPaperDois } from "./exa";
 import { collectByDoi, collectPapers, fetchAuthorWorks, type PaperWithPI } from "./openalex";
-import type { Candidate, CheckItem, Evidence, ItemResult, Paper, SearchInput, SearchResult } from "./types";
+import type { Candidate, CheckItem, Evidence, ItemResult, Paper, SearchInput, SearchProgressEvent, SearchResult } from "./types";
 
 const TOP_N = 15; // 화면에서 필터를 건 뒤 상위 5명을 보여주므로 넉넉히 계산
 
@@ -46,11 +46,29 @@ function buildWarning(items: ItemResult[]): string | null {
   return `${ok.join("·")} 근거는 있으나 ${no.join("·")} 근거는 초록에서 찾지 못했습니다.`;
 }
 
-export async function runSearch(input: SearchInput): Promise<SearchResult> {
+/** onProgress: 단계가 시작·끝날 때 실제 수치와 함께 부른다 (화면 진행 표시용). 없으면 조용히 돈다 */
+export async function runSearch(
+  input: SearchInput,
+  onProgress: (e: SearchProgressEvent) => void = () => {},
+): Promise<SearchResult> {
   const t0 = Date.now();
+  onProgress({ stage: "normalize", status: "start" });
   const normalized = await normalize(input);
+  onProgress({
+    stage: "normalize",
+    status: "done",
+    detail: `검색어 ${normalized.search_queries.length + normalized.method_search_queries.length}개 · 확인할 항목 ${normalized.items.map((i) => i.label).join(", ")}`,
+  });
   // 국내(DBpia)는 별도 섹션. OpenAlex와 병렬로 돌리고, 실패해도 전체 결과에는 영향 없음
-  const domesticP = runDomestic(input.question, normalized);
+  onProgress({ stage: "collect", status: "start" });
+  const domesticP = runDomestic(input.question, normalized).then((d) => {
+    onProgress({
+      stage: "domestic",
+      status: "done",
+      detail: d.status === "ok" ? `국내 학술지(DBpia) 후보 ${d.candidates.length}명` : "국내 학술지(DBpia) 검색 실패",
+    });
+    return d;
+  });
   // 주제 검색어 + 방법·장비 검색어: 주제가 달라도 필요한 방법·장비를 갖춘 연구실을 후보 풀에 넣는다
   // + Exa 의미 검색(키가 있을 때만): 키워드가 달라 놓친 논문의 DOI → OpenAlex에서 저자·소속
   const [keywordPapers, exaPapers] = await Promise.all([
@@ -61,10 +79,17 @@ export async function runSearch(input: SearchInput): Promise<SearchResult> {
   ]);
   const seenIds = new Set(keywordPapers.map((p) => p.id));
   const papers = [...keywordPapers, ...exaPapers.filter((p) => !seenIds.has(p.id))];
+  const exaNew = exaPapers.filter((p) => !seenIds.has(p.id)).length;
+  onProgress({
+    stage: "collect",
+    status: "done",
+    detail: `한국 소속 논문 ${papers.length}편${exaNew ? ` · 의미 검색으로 ${exaNew}편 추가` : ""}`,
+  });
   if (papers.length === 0) {
     return { normalized, candidates: [], domestic: await domesticP, stats: { papers: 0, authors: 0, ms: Date.now() - t0 } };
   }
 
+  onProgress({ stage: "score", status: "start" });
   const docs = papers.map((p) => `${p.title}. ${p.abstract}`.slice(0, 4000));
   const [topicSims, methodSims] = await similarities([normalized.query_en, normalized.method_query_en], docs);
 
@@ -85,13 +110,19 @@ export async function runSearch(input: SearchInput): Promise<SearchResult> {
   });
   scored.sort((a, b) => b.score - a.score);
   const top = scored.slice(0, TOP_N);
+  onProgress({ stage: "score", status: "done", detail: `책임저자 ${byPI.size}명 중 상위 ${top.length}명` });
+  onProgress({ stage: "evidence", status: "start" });
 
   // 근거 보강: 상위 후보의 최근 논문(주제 무관)에서도 방법·장비 문장을 찾는다
   // 현재 소속 확인도 함께 (요청 1번)
   // 기관 위치(시·도)는 통학 지역 필터용
+  const koNames = new Map<string, string>(); // 저자 기록에서 확인한 한글 이름 (영문 표기와 맞는 것만)
   const [extra, affiliations, geo] = await Promise.all([
     fetchAuthorWorks(top.map(({ ps }) => ps[0].pi.authorId)),
-    checkAffiliations(top.map(({ ps }) => ({ authorId: ps[0].pi.authorId, institutionId: ps[0].pi.institutionId }))),
+    checkAffiliations(
+      top.map(({ ps }) => ({ authorId: ps[0].pi.authorId, institutionId: ps[0].pi.institutionId, name: ps[0].pi.name })),
+      koNames,
+    ),
     fetchInstitutionGeo(top.map(({ ps }) => ps[0].pi.institutionId)).catch(() => new Map<string, InstitutionGeo>()),
   ]);
 
@@ -108,6 +139,7 @@ export async function runSearch(input: SearchInput): Promise<SearchResult> {
     return {
       authorId: pi.authorId,
       name: pi.name,
+      nameKo: koNames.get(pi.authorId) ?? null,
       orcid: pi.orcid,
       institution: pi.institution,
       institutionId: pi.institutionId,
@@ -131,6 +163,9 @@ export async function runSearch(input: SearchInput): Promise<SearchResult> {
       },
     };
   });
+
+  const withEvidence = candidates.filter((c) => c.items.some((i) => i.evidence)).length;
+  onProgress({ stage: "evidence", status: "done", detail: `${candidates.length}명 중 ${withEvidence}명에게서 근거 문장 찾음` });
 
   return {
     normalized,

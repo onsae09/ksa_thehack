@@ -13,6 +13,8 @@ export type CandidateView = {
   inst: InstitutionEquipment | undefined;
   piEquip: NameEquipment | undefined;
   projects: NtisProject[] | undefined;
+  /** 영문 이름 옆에 쓸 한글 이름과 그 출처. 확인된 출처가 없으면 null (추측하지 않는다) */
+  ko: { name: string; source: string } | null;
 };
 
 export function candidateView(c: Candidate, side: SideData): CandidateView {
@@ -30,7 +32,15 @@ export function candidateView(c: Candidate, side: SideData): CandidateView {
     inst: { async: side.equip, data: inst },
     pi: { async: side.equip, data: piEquip, enabled: piEnabled },
   });
-  return { table, lab, inst, piEquip, projects };
+  // 한글 이름: 저자 기록(로마자 표기 확인) → 연구실 페이지 → NTIS 과제 책임자 → ZEUS 장비 연구책임자 순
+  // NTIS·ZEUS는 같은 기관 + 로마자 표기가 맞을 때만 연결된 것이라 이름으로 써도 된다
+  const ko =
+    (c.nameKo && { name: c.nameKo, source: "OpenAlex 저자 기록의 한글 표기" }) ||
+    (lab?.koName && { name: lab.koName, source: "연구실 페이지 표기" }) ||
+    (projects?.[0]?.pi && { name: projects[0].pi, source: "NTIS 국가과제 연구책임자 표기" }) ||
+    (piEquip?.[0]?.equip.pi && { name: piEquip[0].equip.pi, source: "ZEUS 장비 구축 과제 연구책임자 표기" }) ||
+    null;
+  return { table, lab, inst, piEquip, projects, ko };
 }
 
 export type DomesticView = { table: EvidenceTable; byName: NameEquipment | undefined; projects: NtisProject[] | undefined };

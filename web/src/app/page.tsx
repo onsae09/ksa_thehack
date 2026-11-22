@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import { AlertCircle, BookOpenCheck, CircleCheck, Info, RotateCcw, SearchX, Unplug, X } from "lucide-react";
 import type { Extracted } from "@/app/api/extract/route";
-import type { LabPagesResult, ProjectsResult, SearchInput, SearchResult } from "@/lib/types";
+import type { LabPagesResult, ProjectsResult, SearchInput, SearchProgressEvent, SearchResult } from "@/lib/types";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -21,6 +21,7 @@ export default function Home() {
   const [methods, setMethods] = useState<string[]>([]);
   const [equipment, setEquipment] = useState("");
   const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState<SearchProgressEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<SearchResult | null>(null);
   const [lastInput, setLastInput] = useState<SearchInput | null>(null);
@@ -100,6 +101,7 @@ export default function Home() {
     setLastInput(input);
     setEditing(false);
     setLoading(true);
+    setProgress([]);
     setError(null);
     setResult(null);
     setSelected(null);
@@ -110,10 +112,36 @@ export default function Home() {
       const res = await fetch("/api/search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(fresh ? { ...input, fresh: true } : input),
+        body: JSON.stringify({ ...input, ...(fresh ? { fresh: true } : {}), stream: true }),
       });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error ?? "오류가 발생했습니다.");
+      if (!res.ok || !res.body) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? "오류가 발생했습니다.");
+      }
+      // 서버가 단계마다 한 줄(JSON)씩 보낸다: progress … → result 또는 error
+      const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+      let buf = "";
+      let data: SearchResult | null = null;
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += value;
+        const lines = buf.split("\n");
+        buf = lines.pop() ?? "";
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          const msg = JSON.parse(line) as
+            | ({ type: "progress" } & SearchProgressEvent)
+            | { type: "result"; result: SearchResult }
+            | { type: "error"; error: string };
+          if (runId.current !== id) return;
+          if (msg.type === "progress") {
+            setProgress((p) => [...p, { stage: msg.stage, status: msg.status, detail: msg.detail }]);
+          } else if (msg.type === "result") data = msg.result;
+          else throw new Error(msg.error);
+        }
+      }
+      if (!data) throw new Error("검색 결과를 받지 못했습니다. 다시 시도해 주세요.");
       if (runId.current !== id) return;
       setResult(data);
       loadSide(data, id);
@@ -313,7 +341,7 @@ export default function Home() {
                 </Alert>
               )}
 
-              {loading && <SearchProgress />}
+              {loading && <SearchProgress events={progress} />}
 
               {result && (
                 <div className="animate-rise">
