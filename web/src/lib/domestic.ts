@@ -1,28 +1,26 @@
 import { collectDbpia, dbpiaAuthorUrl, fetchAuthorInfo, fetchFullAbstract, type DbpiaPaper } from "./dbpia";
 import { similarities } from "./embed";
+import { escapeRe } from "./evidence";
+import { negatedAtKo } from "./negation";
 import { isKoreanName } from "./names";
 import { axisScore, fitLabel, round3, W_METHOD, W_TOPIC } from "./scoring";
 import type { CheckItem, DomesticCandidate, Evidence, ItemResult, Normalized, SearchResult } from "./types";
 
 const TOP_N = 3;
-const NEGATION_KO = /(없|않|못|불가|대신)/;
-
-function escapeRe(s: string) {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
 
 /** 한국어 초록: 문장 단위로 키워드(한·영) 포함 문장을 원문 그대로 고른다 */
 function findEvidenceKo(item: CheckItem, papers: DbpiaPaper[]): Evidence | null {
   const terms = [...item.keywords_ko, ...item.keywords_en];
   if (terms.length === 0) return null;
-  const re = new RegExp(`(${terms.map(escapeRe).join("|")})`, "i");
+  const re = new RegExp(`(${terms.map(escapeRe).join("|")})`, "gi");
   for (const p of papers) {
     for (const s of p.abstract.split(/(?<=[.!?])\s+/).map((x) => x.trim()).filter((x) => x.length > 15)) {
-      const m = re.exec(s);
-      if (!m) continue;
-      // "실험을 하지 않고" 같은 부정: 키워드 뒤 10자 안에 부정어가 있으면 제외
-      if (NEGATION_KO.test(s.slice(m.index + m[0].length, m.index + m[0].length + 10))) continue;
-      return { sentence: s, matched: m[0], paperTitle: p.title, url: p.url, onTopic: true };
+      re.lastIndex = 0;
+      for (let m = re.exec(s); m; m = re.exec(s)) {
+        // "실험 없이", "수행하지 못했다", "향후 연구에서" 같은 부정·가정 문맥은 근거가 아니다 (같은 절 안만 본다)
+        if (negatedAtKo(s, m.index, m.index + m[0].length)) continue;
+        return { sentence: s, matched: m[0], paperTitle: p.title, url: p.url, onTopic: true };
+      }
     }
   }
   return null;

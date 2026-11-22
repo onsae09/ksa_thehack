@@ -71,7 +71,22 @@ for (const c of cases) {
     const mainRank = r.candidates.findIndex((x) => isAdvisor(advisor, x.name)) + 1;
     const domRank =
       r.domestic.candidates.findIndex((x) => isAdvisor(advisor, x.name) || isAdvisor(advisor, x.nameEn)) + 1;
+    // 상위 15명 밖이면 화면과 같은 방식(/api/advisor)으로 "점수상 몇 위 수준"인지도 기록 (순위 자체와는 별개)
+    let estimate = null;
+    if (!mainRank) {
+      const a = await post("/api/advisor", {
+        name: advisor.name ?? "",
+        name_en: advisor.name_en ?? "",
+        affiliation: advisor.affiliation ?? "",
+        query_en: r.normalized.query_en,
+        method_query_en: r.normalized.method_query_en,
+        items: r.normalized.items,
+        scores: r.stats.scores,
+      }).catch(() => null);
+      estimate = a?.scoreRank ? { rank: a.scoreRank, status: a.status } : null;
+    }
     rows.push({
+      estimate,
       id: c.id ?? c.pdf ?? input.question.slice(0, 20),
       advisor: advisor.name ?? advisor.name_en,
       mainRank: mainRank || null,
@@ -88,7 +103,7 @@ for (const c of cases) {
   console.log(
     last.error
       ? `✗ ${last.id}: ${last.error}`
-      : `${last.mainRank && last.mainRank <= 5 ? "✓" : last.mainRank || last.domesticRank ? "△" : "✗"} ${last.id} — 정답 ${last.advisor}: 전체 ${last.mainRank ?? "없음"}위 · 국내 ${last.domesticRank ?? "없음"}위 (${last.sec}s)`,
+      : `${last.mainRank && last.mainRank <= 5 ? "✓" : last.mainRank || last.domesticRank ? "△" : "✗"} ${last.id} — 정답 ${last.advisor}: 전체 ${last.mainRank ?? "없음"}위 · 국내 ${last.domesticRank ?? "없음"}위${last.estimate ? ` · 따로 계산하면 점수상 ${last.estimate.rank}위 수준(${last.estimate.status})` : ""} (${last.sec}s)`,
   );
 }
 

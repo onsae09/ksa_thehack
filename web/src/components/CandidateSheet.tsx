@@ -14,10 +14,13 @@ import { CandidateFlags, orgLine } from "./CandidateTable";
 import { CandidateProjects, InstitutionEquipDetail, PiEquipDetail } from "./SideTabs";
 import { ExtLink, FIT_HELP, FitLevel, Flag, Highlight, Inferred, LinkButton, SOURCE, SourceLabel, SourceMark, Spinner, WarnNote } from "./marks";
 import { candidateView, domesticView } from "./model";
+import { FitSection } from "./FitInsight";
+import type { FitResult } from "@/lib/fit";
 
 const HS_NOTE = "연구실이 고등학생을 받는지는 논문 데이터로 알 수 없으므로 직접 문의가 필요합니다.";
 
-export type Selected = { kind: "openalex"; c: Candidate; rank: number } | { kind: "domestic"; c: DomesticCandidate } | null;
+/** rank: 표의 순위 (순위 밖이면 null). headline: 순위 대신 머리에 쓸 말 (예: 제안서의 연락 예정 교수) */
+export type Selected = { kind: "openalex"; c: Candidate; rank: number | null; headline?: string } | { kind: "domestic"; c: DomesticCandidate } | null;
 
 export function CandidateSheet({
   selected,
@@ -25,6 +28,7 @@ export function CandidateSheet({
   side,
   question,
   checkItems,
+  fit,
 }: {
   selected: Selected;
   onClose: () => void;
@@ -32,6 +36,8 @@ export function CandidateSheet({
   question: string;
   /** 검색 결과의 normalized.items (본문 확인용 키워드). 없으면 본문 확인 칸을 숨긴다 */
   checkItems?: CheckItem[];
+  /** 맞는 점·빈틈 분석 (상위 5명 + 연락 예정 교수) */
+  fit?: Async<FitResult>;
 }) {
   return (
     <Sheet open={!!selected} onOpenChange={(o) => !o && onClose()}>
@@ -39,7 +45,9 @@ export function CandidateSheet({
         side="right"
         className="w-full gap-0 border-l-border bg-background p-0 data-[side=right]:w-full data-[side=right]:sm:max-w-xl md:data-[side=right]:max-w-2xl"
       >
-        {selected?.kind === "openalex" && <OpenAlexDetail c={selected.c} rank={selected.rank} side={side} question={question} checkItems={checkItems} />}
+        {selected?.kind === "openalex" && (
+          <OpenAlexDetail c={selected.c} rank={selected.rank} headline={selected.headline} side={side} question={question} checkItems={checkItems} fit={fit} />
+        )}
         {selected?.kind === "domestic" && <DomesticDetail c={selected.c} side={side} question={question} />}
       </SheetContent>
     </Sheet>
@@ -241,7 +249,23 @@ function Fits({ c }: { c: { fit: Candidate["fit"]; T: number; methodFit: Candida
 
 /* ───────── OpenAlex 후보 ───────── */
 
-function OpenAlexDetail({ c, rank, side, question, checkItems }: { c: Candidate; rank: number; side: SideData; question: string; checkItems?: CheckItem[] }) {
+function OpenAlexDetail({
+  c,
+  rank,
+  headline,
+  side,
+  question,
+  checkItems,
+  fit,
+}: {
+  c: Candidate;
+  rank: number | null;
+  headline?: string;
+  side: SideData;
+  question: string;
+  checkItems?: CheckItem[];
+  fit?: Async<FitResult>;
+}) {
   const v = candidateView(c, side);
   const hasEquipItems = c.items.some((i) => i.kind === "equipment");
   return (
@@ -249,7 +273,15 @@ function OpenAlexDetail({ c, rank, side, question, checkItems }: { c: Candidate;
       head={
         <>
           <p className="text-xs text-muted-foreground">
-            지도교수 후보 <span className="tabular">{rank}</span>위
+            {headline ??
+              (c.group === "affiliation" ? (
+                <>소속 확인 필요 · 점수순 {c.scoreRank}위 (순위에서 뺌)</>
+              ) : (
+                <>
+                  지도교수 후보 <span className="tabular">{rank}</span>위
+                  {c.group === "weak" && c.scoreRank ? ` · 점수순 ${c.scoreRank}위였으나 근거 약함으로 뒤로` : ""}
+                </>
+              ))}
           </p>
           <SheetTitle className="mt-1 font-serif text-2xl leading-tight font-semibold">
             {c.name}
@@ -261,10 +293,17 @@ function OpenAlexDetail({ c, rank, side, question, checkItems }: { c: Candidate;
             <CandidateFlags c={c} full />
           </div>
           {c.affiliation?.status === "stale" && c.affiliation.note && <p className="mt-1.5 text-xs text-warn">{c.affiliation.note}</p>}
+          {c.groupReason && <p className="mt-1.5 text-xs leading-5 text-warn">{c.groupReason}</p>}
           <Fits c={c} />
         </>
       }
     >
+      {fit && fit.state !== "idle" && (
+        <Section title="맞는 점 · 빈틈" aside="모은 근거만 · 인용 원문 대조">
+          <FitSection fit={fit} authorId={c.authorId} />
+        </Section>
+      )}
+
       <Section title="연락">
         <div className="flex flex-wrap gap-2">
           {v.lab ? (
@@ -306,7 +345,7 @@ function OpenAlexDetail({ c, rank, side, question, checkItems }: { c: Candidate;
 
       {!!checkItems?.length && (
         <Section title={<SourceLabel source="paper" className="text-sm font-semibold text-foreground">논문 본문에서 확인</SourceLabel>} aside="공개 PDF만">
-          <FullTextEvidence key={c.authorId} authorId={c.authorId} papers={c.topPapers} items={checkItems} abstractItems={c.items} auto={rank <= 5} />
+          <FullTextEvidence key={c.authorId} authorId={c.authorId} papers={c.topPapers} items={checkItems} abstractItems={c.items} auto={rank === null || rank <= 5} />
         </Section>
       )}
 

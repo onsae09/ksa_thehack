@@ -113,10 +113,27 @@ export function CandidateFlags({ c, full = false }: { c: Candidate; full?: boole
           최근 소속 불확실{a.lastYear ? ` (마지막 ${a.lastYear})` : ""}
         </Flag>
       )}
+      {c.group === "weak" && (
+        <Flag tone="warn" title={c.groupReason ?? undefined}>
+          근거 문장 없음{c.scoreRank ? ` · 점수순 ${c.scoreRank}위` : ""}
+        </Flag>
+      )}
+      {c.group === "affiliation" && (
+        <Flag tone="warn" title={c.groupReason ?? undefined}>
+          소속 확인 필요{c.scoreRank ? ` · 점수순 ${c.scoreRank}위` : ""}
+        </Flag>
+      )}
       {!c.koreanName && <Flag title="국적 정보가 없어 이름 표기로 추정했습니다">외국인 추정</Flag>}
     </>
   );
 }
+
+const hasFlags = (c: Candidate) => c.affiliation?.status === "stale" || !c.koreanName || (c.group ?? "main") !== "main";
+
+/** 점수는 높지만 근거가 약해 뒤로 보낸 후보가 시작되는 줄 (규칙을 그대로 보여준다) */
+const WEAK_NOTE =
+  "여기부터는 필요한 방법·장비 어느 것도 초록에서 근거 문장을 찾지 못했고 방법 적합도도 낮은 후보입니다. 점수로는 더 위였지만 근거가 있는 후보 뒤로 보냈습니다 (점수순 순위는 꼬리표에 표시).";
+const startsWeak = (list: Candidate[], idx: number) => list[idx].group === "weak" && (idx === 0 || list[idx - 1].group !== "weak");
 
 /* ───────── 지도교수 후보 표 (OpenAlex) ───────── */
 
@@ -179,6 +196,13 @@ export function CandidateTable({
               const rank = idx + 1;
               return (
                 <Fragment key={c.authorId}>
+                  {startsWeak(visible, idx) && (
+                    <TableRow className="hover:bg-transparent">
+                      <TableCell colSpan={items.length + 5} className="bg-warn-soft/50 py-2 pl-4 text-xs whitespace-normal text-warn">
+                        {WEAK_NOTE}
+                      </TableCell>
+                    </TableRow>
+                  )}
                   {rank === TOP + 1 && (
                     <TableRow className="hover:bg-transparent">
                       <TableCell colSpan={items.length + 5} className="bg-muted/40 py-2 pl-4 text-xs text-muted-foreground">
@@ -208,7 +232,7 @@ export function CandidateTable({
                         {v.ko && v.ko.name !== c.name && <span className="ml-1.5 font-normal text-foreground/70" title={`한글 이름: ${v.ko.source}`}>{v.ko.name}</span>}
                       </button>
                       <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{orgLine(c)}</p>
-                      {(c.affiliation?.status === "stale" || !c.koreanName) && (
+                      {hasFlags(c) && (
                         <div className="mt-1.5 flex flex-wrap gap-1">
                           <CandidateFlags c={c} />
                         </div>
@@ -250,6 +274,7 @@ export function CandidateTable({
           return (
             <li key={c.authorId}>
               {rank === TOP + 1 && <p className="mb-2.5 px-1 pt-2 text-xs text-muted-foreground">6위부터는 연구실 페이지를 따로 확인하지 않았습니다.</p>}
+              {startsWeak(visible, idx) && <p className="mb-2.5 rounded-lg bg-warn-soft/60 px-3 py-2 text-xs leading-5 text-warn">{WEAK_NOTE}</p>}
               <MobileRow
                 onOpen={() => onOpen(c, rank)}
                 rank={<Rank n={rank} />}
@@ -260,7 +285,7 @@ export function CandidateTable({
                   </>
                 }
                 sub={orgLine(c)}
-                flags={(c.affiliation?.status === "stale" || !c.koreanName) && <CandidateFlags c={c} />}
+                flags={hasFlags(c) && <CandidateFlags c={c} />}
                 fit={{ fit: c.fit, T: c.T, methodFit: c.methodFit, M: c.M }}
                 items={items}
                 table={v.table}
@@ -337,6 +362,47 @@ function MobileRow({
         </span>
       </span>
     </button>
+  );
+}
+
+/* ───────── 소속 확인 필요 묶음 (순위에서 뺐지만 숨기지 않음) ───────── */
+
+export function ReviewGroup({ candidates, onOpen }: { candidates: Candidate[]; onOpen: (c: Candidate) => void }) {
+  const [open, setOpen] = useState(false);
+  if (candidates.length === 0) return null;
+  return (
+    <section aria-label="소속 확인 필요" className="rounded-xl border border-border bg-card">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm text-foreground"
+      >
+        <ChevronDown className={cn("size-4 shrink-0 text-muted-foreground transition-transform", open && "rotate-180")} aria-hidden="true" />
+        <span className="font-medium">소속 확인 필요</span>
+        <span className="rounded-full bg-muted px-1.5 text-xs text-muted-foreground tabular">{candidates.length}</span>
+        <span className="min-w-0 truncate text-xs text-muted-foreground">점수는 상위 15명 안이지만, 지금은 해외 기관 소속일 가능성이 커서 순위에서 뺀 후보</span>
+      </button>
+      {open && (
+        <ul className="divide-y divide-border border-t border-border">
+          {candidates.map((c) => (
+            <li key={c.authorId}>
+              <button type="button" onClick={() => onOpen(c)} className="group flex w-full items-start gap-3 px-4 py-3 text-left hover:bg-muted/40">
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[15px] font-semibold text-foreground group-hover:text-primary">{c.name}</span>
+                  <span className="mt-0.5 block text-xs leading-5 text-muted-foreground">{orgLine(c)}</span>
+                  <span className="mt-1.5 flex flex-wrap gap-1">
+                    <CandidateFlags c={c} />
+                  </span>
+                  {c.groupReason && <span className="mt-1.5 block text-xs leading-5 text-warn">{c.groupReason}</span>}
+                </span>
+                <ChevronRight className="mt-1 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 

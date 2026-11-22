@@ -7,57 +7,27 @@ import { axisScore, fitLabel, round3, W_METHOD, W_TOPIC } from "./scoring";
 import { normalize } from "./normalize";
 import { exaPaperDois } from "./exa";
 import { collectByDoi, collectPapers, fetchAuthorWorks, type PaperWithPI } from "./openalex";
-import type { Candidate, CheckItem, Evidence, ItemResult, Paper, SearchInput, SearchProgressEvent, SearchResult } from "./types";
+import { buildWarning, itemResults } from "./evidence";
+import type { AffiliationCheck, Candidate, CandidateGroup, ItemResult, Paper, SearchInput, SearchProgressEvent, SearchResult } from "./types";
 
 const TOP_N = 15; // 화면에서 필터를 건 뒤 상위 5명을 보여주므로 넉넉히 계산
 
-
-function escapeRe(s: string) {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-const NEGATION = /\b(no|not|without|never|lack of|lacking|absence of|instead of)\b[^.]*$/i;
-
-function splitSentences(text: string): string[] {
-  return text.split(/(?<=[.!?])\s+(?=[A-Z0-9])/).map((s) => s.trim()).filter((s) => s.length > 20);
-}
-
-/** 초록 원문 문장 중 키워드가 들어 있는 첫 문장. 문장을 만들어내지 않고 원문에서 고르기만 한다. */
-function findEvidence(item: CheckItem, papers: Paper[], onTopicIds: Set<string>): Evidence | null {
-  if (item.keywords_en.length === 0) return null;
-  const re = new RegExp(`\\b(${item.keywords_en.map(escapeRe).join("|")})`, "i");
-  for (const p of papers) {
-    for (const s of splitSentences(p.abstract)) {
-      const m = re.exec(s);
-      if (!m) continue;
-      // "no experiment has…", "without simulation" 같은 부정 문맥은 근거가 아니다
-      if (NEGATION.test(s.slice(Math.max(0, m.index - 30), m.index))) continue;
-      return { sentence: s, matched: m[0], paperTitle: p.title, url: p.url, onTopic: onTopicIds.has(p.id) };
-    }
-  }
-  return null;
-}
-
-function buildWarning(items: ItemResult[]): string | null {
-  const ok = items.filter((i) => i.evidence).map((i) => i.label);
-  const no = items.filter((i) => !i.evidence).map((i) => i.label);
-  if (no.length === 0) return null;
-  if (ok.length === 0) return "초록에서 방법·장비 근거를 찾지 못했습니다. 불가능하다는 뜻은 아니며, 논문 본문이나 직접 문의로 확인해야 합니다.";
-  return `${ok.join("·")} 근거는 있으나 ${no.join("·")} 근거는 초록에서 찾지 못했습니다.`;
-}
 
 /** onProgress: 단계가 시작·끝날 때 실제 수치와 함께 부른다 (화면 진행 표시용). 없으면 조용히 돈다 */
 export async function runSearch(
   input: SearchInput,
   onProgress: (e: SearchProgressEvent) => void = () => {},
+  opts: { freshNormalize?: boolean } = {},
 ): Promise<SearchResult> {
   const t0 = Date.now();
   onProgress({ stage: "normalize", status: "start" });
-  const normalized = await normalize(input);
+  const normalized = await normalize(input, { fresh: opts.freshNormalize });
+  const equipmentQueries = normalized.equipment_queries ?? [];
+  const queries = [...normalized.search_queries, ...normalized.method_search_queries, ...equipmentQueries];
   onProgress({
     stage: "normalize",
     status: "done",
-    detail: `검색어 ${normalized.search_queries.length + normalized.method_search_queries.length}개 · 확인할 항목 ${normalized.items.map((i) => i.label).join(", ")}`,
+    detail: `검색어 ${queries.length}개 · 확인할 항목 ${normalized.items.map((i) => i.label).join(", ")}`,
   });
   // 국내(DBpia)는 별도 섹션. OpenAlex와 병렬로 돌리고, 실패해도 전체 결과에는 영향 없음
   onProgress({ stage: "collect", status: "start" });
@@ -72,7 +42,7 @@ export async function runSearch(
   // 주제 검색어 + 방법·장비 검색어: 주제가 달라도 필요한 방법·장비를 갖춘 연구실을 후보 풀에 넣는다
   // + Exa 의미 검색(키가 있을 때만): 키워드가 달라 놓친 논문의 DOI → OpenAlex에서 저자·소속
   const [keywordPapers, exaPapers] = await Promise.all([
-    collectPapers([...normalized.search_queries, ...normalized.method_search_queries]),
+    collectPapers(queries),
     exaPaperDois([normalized.query_en, normalized.method_query_en])
       .then(collectByDoi)
       .catch(() => [] as PaperWithPI[]),
@@ -86,7 +56,7 @@ export async function runSearch(
     detail: `한국 소속 논문 ${papers.length}편${exaNew ? ` · 의미 검색으로 ${exaNew}편 추가` : ""}`,
   });
   if (papers.length === 0) {
-    return { normalized, candidates: [], domestic: await domesticP, stats: { papers: 0, authors: 0, ms: Date.now() - t0 } };
+    return { normalized, candidates: [], domestic: await domesticP, stats: { papers: 0, authors: 0, ms: Date.now() - t0, scores: [] } };
   }
 
   onProgress({ stage: "score", status: "start" });
@@ -110,6 +80,7 @@ export async function runSearch(
   });
   scored.sort((a, b) => b.score - a.score);
   const top = scored.slice(0, TOP_N);
+  const allScores = scored.slice(0, 1000).map((x) => round3(x.score));
   onProgress({ stage: "score", status: "done", detail: `책임저자 ${byPI.size}명 중 상위 ${top.length}명` });
   onProgress({ stage: "evidence", status: "start" });
 
@@ -126,16 +97,14 @@ export async function runSearch(
     fetchInstitutionGeo(top.map(({ ps }) => ps[0].pi.institutionId)).catch(() => new Map<string, InstitutionGeo>()),
   ]);
 
-  const candidates: Candidate[] = top.map(({ ps, T, M, score }) => {
+  const ranked: Candidate[] = top.map(({ ps, T, M, score }, idx) => {
     const pi = ps[0].pi;
     const seen = new Set(ps.map((p) => p.id));
     const evidencePool: Paper[] = [...ps, ...(extra.get(pi.authorId) ?? []).filter((p) => !seen.has(p.id))];
-    const items: ItemResult[] = normalized.items.map((it) => ({
-      label: it.label,
-      kind: it.kind,
-      inferred: it.inferred,
-      evidence: findEvidence(it, evidencePool, seen),
-    }));
+    const items: ItemResult[] = itemResults(normalized.items, evidencePool, seen);
+    const affiliation = affiliations.get(pi.authorId) ?? { status: "unknown" as const, lastYear: null, note: null };
+    const methodFit = fitLabel(M.s1);
+    const g = groupOf(affiliation, items, methodFit);
     return {
       authorId: pi.authorId,
       name: pi.name,
@@ -146,13 +115,16 @@ export async function runSearch(
       institutionType: pi.institutionType,
       orgKind: orgKind(pi.institutionType),
       sido: geo.get(pi.institutionId)?.sido ?? null,
-      affiliation: affiliations.get(pi.authorId) ?? { status: "unknown", lastYear: null, note: null },
+      affiliation,
       koreanName: isKoreanName(pi.name),
       T: round3(T.value),
       fit: fitLabel(T.s1),
       M: round3(M.value),
-      methodFit: fitLabel(M.s1),
+      methodFit,
       score: round3(score),
+      group: g.group,
+      groupReason: g.reason,
+      scoreRank: idx + 1,
       topPapers: ps.slice(0, 3).map(({ pi: _pi, ...p }) => ({ ...p, abstract: p.abstract.slice(0, 600) })),
       items,
       warning: buildWarning(items),
@@ -163,6 +135,10 @@ export async function runSearch(
       },
     };
   });
+
+  // 묶음 순서: 본 순위 → 근거 약한 후보 → 소속 확인 필요 (각 묶음 안은 점수순). 아무도 숨기지 않는다
+  const ORDER: CandidateGroup[] = ["main", "weak", "affiliation"];
+  const candidates = ORDER.flatMap((grp) => ranked.filter((c) => (c.group ?? "main") === grp));
 
   const withEvidence = candidates.filter((c) => c.items.some((i) => i.evidence)).length;
   onProgress({ stage: "evidence", status: "done", detail: `${candidates.length}명 중 ${withEvidence}명에게서 근거 문장 찾음` });
@@ -176,6 +152,36 @@ export async function runSearch(
       authors: byPI.size,
       ms: Date.now() - t0,
       exaPapers: exaPapers.filter((p) => !seenIds.has(p.id)).length,
+      scores: allScores,
     },
   };
+}
+
+/**
+ * 순위 묶음 규칙 (숨기지 않고, 이유를 화면에 그대로 보여준다)
+ * 1) 소속 확인 필요: 이 한국 기관 소속 마지막 기록이 2년보다 오래됐고(stale), 그 뒤 기록이 해외 기관뿐
+ *    → 지금은 한국에 없을 가능성이 커서 본 순위에서 뺀다 (예: Kishan Dholakia — Yonsei 기록 2023, 이후 St Andrews)
+ *    그 뒤 기록이 한국 기관이면 국내 이동이라 순위에 둔다 (꼬리표만).
+ * 2) 근거 약함: 필요한 방법·장비·데이터 어느 것도 초록 근거 문장이 없고, 방법 적합도도 낮음
+ *    → 점수(주제 유사도)만 높고 방법이 다른 연구실(예: 이론·수학 위주)일 가능성이 커서 근거 있는 후보 뒤로 보낸다.
+ *    연구실 페이지·ZEUS·본문 근거는 나중에 불러오므로 이 규칙에 쓰지 않는다 (표에서 따로 확인 가능).
+ */
+export function groupOf(
+  a: AffiliationCheck,
+  items: ItemResult[],
+  methodFit: Candidate["methodFit"],
+): { group: CandidateGroup; reason: string | null } {
+  if (a.status === "stale" && a.later && a.later.country && a.later.country !== "KR") {
+    return {
+      group: "affiliation",
+      reason: `이 기관 소속 마지막 논문이 ${a.lastYear}년이고, 그 뒤 ${a.later.year}년 기록은 해외 기관(${a.later.institution})입니다. 지금 한국에 있는지 확인이 필요해 순위에서 뺐습니다.`,
+    };
+  }
+  if (items.length > 0 && items.every((i) => !i.evidence) && methodFit === "낮음") {
+    return {
+      group: "weak",
+      reason: "필요한 방법·장비 어느 것도 초록에서 근거 문장을 찾지 못했고 방법 적합도도 낮아, 근거가 있는 후보 뒤로 보냈습니다.",
+    };
+  }
+  return { group: "main", reason: null };
 }

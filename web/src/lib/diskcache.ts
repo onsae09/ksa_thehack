@@ -55,3 +55,10 @@ export async function cached<T>(ns: string, input: unknown, compute: () => Promi
   }
   return value;
 }
+
+/** compute를 건너뛰고 값을 직접 저장 (새로 계산한 결과로 덮어쓸 때). 메모리 캐시도 같이 바꾼다 */
+export async function putCache(ns: string, input: unknown, value: unknown): Promise<void> {
+  const key = cacheKey(input);
+  memory.set(`${ns}/${key}`, value);
+  await writeCache(ns, key, value);
+}

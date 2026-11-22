@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
+import { cached, putCache } from "./diskcache";
 import type { CheckItem, Normalized, SearchInput } from "./types";
 
 const client = new Anthropic();
@@ -75,7 +76,55 @@ const DEFAULT_METHOD_KEYWORDS: Record<string, string[]> = {
   "데이터 분석": ["dataset", "statistical analysis", "regression", "machine learning", "data-driven"],
 };
 
-export async function normalize(input: SearchInput): Promise<Normalized> {
+/**
+ * 학생이 적은 장비 이름에서 바로 만든 영문 검색어. Claude가 실행마다 다른 검색어를 내도 이 검색어는 그대로라
+ * 장비를 쓰는 연구실이 매번 후보 풀에 들어온다 (예: 박용근 교수 — 홀로그래피 논문이 많지만 주제 검색어에는 안 걸림).
+ * 괄호 안 영문 표기("공간 광변조기(Spatial light modulator, SLM)" → "spatial light modulator")가 있으면 그것,
+ * 없으면 그 항목 키워드 중 여러 낱말로 된 첫 키워드.
+ */
+export function equipmentQueries(items: CheckItem[], existing: string[] = []): string[] {
+  const seen = new Set(existing.map((q) => q.toLowerCase().trim()));
+  const out: string[] = [];
+  for (const it of items) {
+    if (it.kind !== "equipment" || it.inferred) continue;
+    const paren = /[(（]\s*([A-Za-z][A-Za-z0-9 \-]{3,})/.exec(it.label)?.[1];
+    const q = (
+      paren ??
+      it.keywords_en.find((k) => /\s/.test(k.trim()) && k.length >= 6) ??
+      it.keywords_en.find((k) => k.length >= 6) ??
+      ""
+    )
+      .toLowerCase()
+      .trim();
+    if (!q || seen.has(q)) continue;
+    seen.add(q);
+    out.push(q);
+  }
+  return out.slice(0, 4);
+}
+
+/**
+ * 같은 입력이면 같은 정리 결과 (파일 캐시). Claude Opus 5.5는 temperature를 받지 않아 실행마다 검색어가 달라지고,
+ * 그 차이로 상위 후보가 바뀌었다 (같은 제안서로 박용근 교수가 11위 ↔ 15위 밖). fresh: true면 새로 만들어 덮어쓴다.
+ */
+export async function normalize(input: SearchInput, opts: { fresh?: boolean } = {}): Promise<Normalized> {
+  const key = {
+    q: input.question.replace(/\s+/g, " ").trim(),
+    m: input.methods,
+    e: splitEquipment(input.equipment),
+    d: splitEquipment(input.data ?? ""),
+  };
+  if (opts.fresh) {
+    const v = await normalizeOnce(input);
+    await putCache(NS, key, v);
+    return v;
+  }
+  return cached(NS, key, () => normalizeOnce(input));
+}
+
+const NS = "normalize-v1";
+
+async function normalizeOnce(input: SearchInput): Promise<Normalized> {
   const equipment = splitEquipment(input.equipment);
   const data = splitEquipment(input.data ?? "");
   const givenLabels = [...input.methods, ...equipment, ...data];
@@ -140,14 +189,16 @@ export async function normalize(input: SearchInput): Promise<Normalized> {
     })),
   ];
 
+  const method_search_queries = out.method_search_queries.slice(0, 2);
   return {
     query_en: out.query_en,
     search_queries: out.search_queries.slice(0, 3),
     search_queries_ko: out.search_queries_ko.slice(0, 2),
     method_query_en: out.method_query_en,
-    method_search_queries: out.method_search_queries.slice(0, 2),
+    method_search_queries,
     method_search_queries_ko: out.method_search_queries_ko.slice(0, 1),
     ntis_queries_ko: out.ntis_queries_ko.slice(0, 3),
     items,
+    equipment_queries: equipmentQueries(items, [...out.search_queries, ...method_search_queries]),
   };
 }

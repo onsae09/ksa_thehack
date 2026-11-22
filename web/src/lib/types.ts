@@ -29,6 +29,8 @@ export type Normalized = {
   method_search_queries_ko: string[];
   ntis_queries_ko: string[]; // NTIS 과제명 검색용 (격식 있는 기술 용어 1~2단어)
   items: CheckItem[];
+  /** 학생이 적은 장비 이름에서 그대로 만든 검색어 (실행마다 달라지지 않게). 예전 캐시 결과에는 없음 */
+  equipment_queries?: string[];
 };
 
 export type Paper = {
@@ -78,7 +80,20 @@ export type Candidate = {
   items: ItemResult[];
   warning: string | null;
   links: { openalex: string; orcid: string | null; search: string };
+  /**
+   * 순위 묶음 (예전 캐시 결과에는 없을 수 있다 → main으로 본다)
+   * - main: 점수순 본 순위
+   * - weak: 모든 요구 항목에 초록 근거가 없고 방법 적합도도 낮음 → 근거가 있는 후보 뒤로 (숨기지 않음)
+   * - affiliation: 이 기관 기록이 오래됐고 그 뒤 기록이 해외 기관 → 순위에서 빼고 "소속 확인 필요"로 따로 보여줌
+   */
+  group?: CandidateGroup;
+  /** group이 main이 아닐 때 화면에 그대로 보여줄 이유 */
+  groupReason?: string | null;
+  /** 점수만으로 매긴 순위 (묶음 규칙 적용 전, 1부터) */
+  scoreRank?: number;
 };
+
+export type CandidateGroup = "main" | "weak" | "affiliation";
 
 export type DomesticCandidate = {
   ancId: string;
@@ -102,7 +117,14 @@ export type SearchResult = {
   normalized: Normalized;
   candidates: Candidate[];
   domestic: { status: "ok" | "failed"; candidates: DomesticCandidate[] };
-  stats: { papers: number; authors: number; ms: number; exaPapers?: number }; // exaPapers: Exa 의미 검색으로 추가된 논문 수
+  stats: {
+    papers: number;
+    authors: number;
+    ms: number;
+    exaPapers?: number; // Exa 의미 검색으로 추가된 논문 수
+    /** 책임저자 전원의 점수 (내림차순, 소수 셋째 자리). 연락 예정 교수가 몇 위 수준인지 비교용 */
+    scores?: number[];
+  };
   /** 저장된 결과를 돌려준 경우 처음 검색한 시각 (새로 검색한 응답에는 없음) */
   cachedAt?: string;
 };
@@ -112,6 +134,8 @@ export type AffiliationCheck = {
   status: "current" | "stale" | "unknown";
   lastYear: number | null; // 이 기관 소속으로 마지막 논문이 나온 해
   note: string | null; // 예: "2026년 이후 Harbin Institute of Technology 소속 기록"
+  /** stale일 때 이 기관 이후의 다른 기관 기록 (한국 기관이 있으면 그것) */
+  later?: { institution: string; country: string | null; year: number } | null;
 };
 
 /** NTIS 국가R&D 과제 (목록 화면 기준. 상세는 로그인 필요) */

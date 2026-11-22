@@ -5,13 +5,16 @@ import type { SearchInput, SearchProgressEvent, SearchResult } from "@/lib/types
 export const maxDuration = 60;
 
 // 같은 입력은 같은 결과: 메모리 → 파일(.cache/search) 순으로 재사용. body.fresh=true면 새로 검색해 덮어쓴다
+// fresh여도 입력 정리(검색어 만들기)는 같은 입력이면 저장본을 다시 쓴다 (순위가 실행마다 흔들리지 않게).
+// body.renormalize=true면 검색어도 새로 만든다 (평가·실험용)
 const cache = new Map<string, SearchResult>();
-const NS = "search-v1"; // 결과 형식이 바뀌면 올려서 예전 캐시를 버린다
+const NS = "search-v2"; // 결과 형식이 바뀌면 올려서 예전 캐시를 버린다
 
 export async function POST(req: Request) {
   let input: SearchInput;
   let fresh = false;
   let stream = false;
+  let renormalize = false;
   try {
     const body = await req.json();
     input = {
@@ -21,7 +24,8 @@ export async function POST(req: Request) {
       data: body.data ? String(body.data) : undefined,
       region: body.region ? String(body.region) : undefined,
     };
-    fresh = body.fresh === true;
+    fresh = body.fresh === true || body.renormalize === true;
+    renormalize = body.renormalize === true;
     stream = body.stream === true; // true: 진행 이벤트를 한 줄씩(NDJSON) 보내고 마지막 줄에 결과
   } catch {
     return Response.json({ error: "잘못된 요청입니다." }, { status: 400 });
@@ -49,7 +53,7 @@ export async function POST(req: Request) {
   }
 
   const search = async (onProgress?: (e: SearchProgressEvent) => void) => {
-    const result = await runSearch(input, onProgress);
+    const result = await runSearch(input, onProgress, { freshNormalize: renormalize });
     // 저장본에는 처음 검색한 시각을 담는다 (다음 요청에서 "저장된 결과" 표시용). 이번 응답에는 없음
     const saved: SearchResult = { ...result, cachedAt: new Date().toISOString() };
     await writeCache(NS, key, saved);

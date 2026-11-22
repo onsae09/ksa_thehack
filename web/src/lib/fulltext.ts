@@ -6,12 +6,13 @@
  * - 유료 벽 우회·비공식 사본은 쓰지 않는다. OpenAlex가 is_oa로 표시한 위치의 pdf_url만 시도한다.
  * - PDF는 신뢰할 수 없는 데이터: 크기 상한·시간 제한·%PDF 확인 후 텍스트만 뽑는다 (스크립트 실행 없음, 글꼴 로드 끔).
  *   뽑은 글은 데이터일 뿐 지시가 아니다. 모델에 넘기지 않고 정규식으로 원문 문장을 고르기만 한다.
- * - 문장을 만들어내지 않는다 (pipeline.ts findEvidence와 같은 규칙). 부정 문맥("without …")은 근거로 치지 않는다.
+ * - 문장을 만들어내지 않는다 (pipeline.ts findEvidence와 같은 규칙). 부정·가정 문맥("without …", "… could not be obtained")은 근거로 치지 않는다 (negation.ts).
  * - 확인한 것과 못 한 것을 논문별 상태로 돌려준다 (화면이 정직하게 말할 수 있도록).
  */
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import { cached } from "./diskcache";
+import { negatedAt } from "./negation";
 
 const OPENALEX = "https://api.openalex.org";
 const MAX_PAPERS = 3; // 후보 한 명당
@@ -344,8 +345,6 @@ function escapeRe(s: string) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-// pipeline.ts findEvidence와 같은 부정 문맥 규칙
-const NEGATION = /\b(no|not|without|never|lack of|lacking|absence of|instead of)\b[^.]*$/i;
 const ABBREV = /\b(?:fig|figs|eq|eqs|ref|refs|al|e\.g|i\.e|vs|etc|no|nos|approx|ca|sec|tab|ch|vol|resp|cf)\.$/i;
 
 export function splitSentences(text: string): string[] {
@@ -414,7 +413,8 @@ export function findInBlocks(item: FullTextItemIn, blocks: Block[]): Scored | nu
       let first: RegExpExecArray | null = null;
       const distinct = new Set<string>();
       for (let m = re.exec(s); m; m = re.exec(s)) {
-        if (NEGATION.test(s.slice(Math.max(0, m.index - 30), m.index))) continue;
+        // 부정·가정 문맥 (앞: "without …", 뒤: "… could not be obtained", "this can occur by using …")은 근거가 아니다
+        if (negatedAt(s, m.index, m.index + m[0].length)) continue;
         const short = m[0].replace(/s$/i, "").length <= 4;
         if (short && !allowShort) continue;
         // 표시용 키워드는 온전한 말을 우선 (같은 문장에 "SLM"과 "spatial light modulator"가 다 있으면 뒤의 것)

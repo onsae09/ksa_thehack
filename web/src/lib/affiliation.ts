@@ -70,6 +70,9 @@ export async function checkAffiliations(
       out.set(p.authorId, {
         status: "stale",
         lastYear,
+        later: later
+          ? { institution: later.institution.display_name, country: later.institution.country_code, year: Math.max(...later.years) }
+          : null,
         note: later
           ? `${Math.max(...later.years)}년 ${later.institution.display_name} 소속 기록이 있습니다`
           : `${lastYear}년 이후 이 기관 소속 논문 기록이 없습니다`,

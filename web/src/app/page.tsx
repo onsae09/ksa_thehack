@@ -2,16 +2,18 @@
 
 import { useRef, useState } from "react";
 import Link from "next/link";
-import { AlertCircle, BookOpenCheck, CircleCheck, Info, RotateCcw, SearchX, Unplug, X } from "lucide-react";
+import { AlertCircle, BookOpenCheck, RotateCcw, SearchX, Unplug, X } from "lucide-react";
 import type { Extracted } from "@/app/api/extract/route";
 import type { DatasetsResult, LabPagesResult, ProjectsResult, SearchInput, SearchProgressEvent, SearchResult } from "@/lib/types";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CandidateSheet, type Selected } from "@/components/CandidateSheet";
-import { CandidateTable, DomesticTable, SourceLegend, TOP } from "@/components/CandidateTable";
+import { CandidateTable, DomesticTable, ReviewGroup, SourceLegend, TOP } from "@/components/CandidateTable";
+import { AdvisorCard, FitSummary } from "@/components/FitInsight";
+import { useAdvisorLookup, useFitAnalysis, withAdvisorSide } from "@/components/insight";
 import { Composer, EXAMPLES, QueryBar } from "@/components/Composer";
-import { IDLE_SIDE, KIND_LABEL, normName, postJSON, type Async, type EquipData, type SideData } from "@/components/data";
+import { IDLE_SIDE, KIND_LABEL, postJSON, type Async, type EquipData, type SideData } from "@/components/data";
 import { Filters, NO_EQUIP_FILTER, type EquipFilter, type NameFilter, type OrgFilter, type RegionFilter } from "@/components/Filters";
 import { candidateView, itemCell } from "@/components/model";
 import { Caveat, Inferred, Quiet, SourceLabel, Spinner } from "@/components/marks";
@@ -196,6 +198,21 @@ export default function Home() {
   const regionCounts = new Map<string | null, number>();
   for (const c of preRegion) regionCounts.set(c.sido ?? null, (regionCounts.get(c.sido ?? null) ?? 0) + 1);
   const filtered = preRegion.filter((c) => regionFilter === "all" || (regionFilter === "unknown" ? !c.sido : c.sido === regionFilter));
+  // 순위 표(본 순위 + 근거 약한 후보)와 "소속 확인 필요" 묶음 (lib/pipeline.ts groupOf 규칙)
+  const ranked = filtered.filter((c) => (c.group ?? "main") !== "affiliation");
+  const review = filtered.filter((c) => c.group === "affiliation");
+  // 연락 예정 교수(상위 15명 밖일 때 따로 조회)와 맞는 점·빈틈 분석: 다른 출처처럼 결과가 나온 뒤 불러온다
+  const advisorLookup = useAdvisorLookup(proposal?.planned_advisor, result, lastInput?.question ?? "");
+  const sheetSide = withAdvisorSide(side, advisorLookup);
+  const displayName = (c: SearchResult["candidates"][number]) => {
+    const ko = candidateView(c, sheetSide).ko;
+    return ko && ko.name !== c.name ? `${c.name} (${ko.name})` : c.name;
+  };
+  const fit = useFitAnalysis(result, side, advisorLookup, lastInput?.question ?? "", displayName);
+  const fitNameOf = (id: string) => {
+    const c = result?.candidates.find((x) => x.authorId === id) ?? (advisorLookup.state === "ok" ? advisorLookup.data.candidate : null);
+    return c && c.authorId === id ? displayName(c) : null;
+  };
   const domestic = result?.domestic.candidates.filter((c) => nameFilter === "all" || (nameFilter === "korean") === c.koreanName) ?? [];
   const hasEquipItems = !!result?.normalized.items.some((i) => i.kind === "equipment");
   const hasDataItems = !!result?.normalized.items.some((i) => i.kind === "data");
@@ -391,13 +408,20 @@ export default function Home() {
                   </div>
 
                   {proposal?.planned_advisor && (
-                    <AdvisorCheck
+                    <AdvisorCard
                       advisor={proposal.planned_advisor}
                       result={result}
-                      onOpen={(s) => {
-                        setTab(s?.kind === "domestic" ? "domestic" : "candidates");
-                        setSelected(s);
+                      lookup={advisorLookup}
+                      onOpenRanked={(i) => {
+                        const c = result.candidates[i];
+                        setTab("candidates");
+                        setSelected({ kind: "openalex", c, rank: c.group === "affiliation" ? null : i + 1 });
                       }}
+                      onOpenDomestic={(i) => {
+                        setTab("domestic");
+                        setSelected({ kind: "domestic", c: result.domestic.candidates[i] });
+                      }}
+                      onOpenPinned={(c, headline) => setSelected({ kind: "openalex", c, rank: null, headline })}
                     />
                   )}
 
@@ -445,6 +469,7 @@ export default function Home() {
                       <Caveat>
                         주제 적합도와 방법 적합도를 반씩 더한 점수 순입니다. 한국인/외국인은 국적 정보가 없어 이름 표기로 추정했고, 지역은 OpenAlex 기관 주소 기준이라 분교·캠퍼스가 다르면 틀릴 수 있습니다. 행을 누르면 근거 문장과 출처가 열립니다.
                       </Caveat>
+                      {result.candidates.length > 0 && <FitSummary fit={fit} nameOf={fitNameOf} />}
                       {result.candidates.length === 0 ? (
                         <Quiet icon={SearchX}>조건에 맞는 한국 소속 논문을 찾지 못했습니다. 질문을 더 일반적인 표현으로 바꿔 보세요.</Quiet>
                       ) : filtered.length === 0 && equipLabel !== "all" && equipFilter.scope === "person" ? (
@@ -461,14 +486,15 @@ export default function Home() {
                         </Quiet>
                       ) : filtered.length === 0 ? (
                         <Quiet>필터 조건에 맞는 후보가 없습니다. 필터를 풀어 보세요.</Quiet>
-                      ) : (
+                      ) : ranked.length === 0 ? null : (
                         <CandidateTable
-                          candidates={filtered}
+                          candidates={ranked}
                           items={result.normalized.items}
                           side={side}
                           onOpen={(c, rank) => setSelected({ kind: "openalex", c, rank })}
                         />
                       )}
+                      <ReviewGroup candidates={review} onOpen={(c) => setSelected({ kind: "openalex", c, rank: null })} />
                       <SourceLegend labsShown={side.labs.state === "loading" || (side.labs.state === "ok" && side.labs.data.status === "ok")} />
                     </TabsContent>
 
@@ -521,9 +547,10 @@ export default function Home() {
       <CandidateSheet
         selected={selected}
         onClose={() => setSelected(null)}
-        side={side}
+        side={sheetSide}
         question={lastInput?.question ?? ""}
         checkItems={result?.normalized.items}
+        fit={fit}
       />
     </>
   );
@@ -552,49 +579,5 @@ function ExtractError({ message }: { message: string }) {
       <AlertCircle className="size-4 shrink-0" aria-hidden="true" />
       {message}
     </p>
-  );
-}
-
-/** 제안서에 적힌 연락 예정 교수가 결과에 있는지 (이름 표기 차이를 고려해 성·이름 순서 둘 다 비교) */
-function AdvisorCheck({
-  advisor,
-  result,
-  onOpen,
-}: {
-  advisor: NonNullable<Extracted["planned_advisor"]>;
-  result: SearchResult;
-  onOpen: (s: Selected) => void;
-}) {
-  const en = advisor.name_en.trim().split(/\s+/);
-  const variants = new Set([normName(advisor.name), normName(en.join("")), normName([...en.slice(-1), ...en.slice(0, -1)].join(""))]);
-  const main = result.candidates.findIndex((c) => variants.has(normName(c.name)));
-  const dom = result.domestic.candidates.findIndex((c) => variants.has(normName(c.name)) || (c.nameEn && variants.has(normName(c.nameEn))));
-  const found = main >= 0 ? `전체 ${main + 1}위${main >= TOP ? ", 상위 5명 밖" : ""}` : dom >= 0 ? `국내 학술지 후보 ${dom + 1}위` : null;
-  const target: Selected =
-    main >= 0
-      ? { kind: "openalex", c: result.candidates[main], rank: main + 1 }
-      : dom >= 0
-        ? { kind: "domestic", c: result.domestic.candidates[dom] }
-        : null;
-  return (
-    <Alert className={found ? "mt-5 border-ok/25 bg-ok-soft/60" : "mt-5 bg-card"}>
-      {found ? <CircleCheck className="text-ok" aria-hidden="true" /> : <Info aria-hidden="true" />}
-      <AlertTitle className="font-normal text-muted-foreground">제안서의 연락 예정 교수</AlertTitle>
-      <AlertDescription className="text-foreground">
-        <p>
-          <b className="font-semibold">{advisor.name}</b> ({advisor.affiliation}) —{" "}
-          {found ? (
-            <>
-              결과에 있습니다 ({found}).{" "}
-              <button type="button" onClick={() => onOpen(target)} className="font-medium text-primary underline underline-offset-[3px]">
-                근거 보기
-              </button>
-            </>
-          ) : (
-            "상위 15명 안에는 없습니다. 논문 데이터로는 잡히지 않는 연결(학교 협력, 지인 소개 등)로 고른 교수일 수 있습니다."
-          )}
-        </p>
-      </AlertDescription>
-    </Alert>
   );
 }
