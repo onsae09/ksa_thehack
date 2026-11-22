@@ -11,7 +11,8 @@ import { CandidateSheet, type Selected } from "@/components/CandidateSheet";
 import { CandidateTable, DomesticTable, SourceLegend, TOP } from "@/components/CandidateTable";
 import { Composer, EXAMPLES, QueryBar } from "@/components/Composer";
 import { IDLE_SIDE, KIND_LABEL, normName, postJSON, type Async, type EquipData, type SideData } from "@/components/data";
-import { Filters, type NameFilter, type OrgFilter, type RegionFilter } from "@/components/Filters";
+import { Filters, NO_EQUIP_FILTER, type EquipFilter, type NameFilter, type OrgFilter, type RegionFilter } from "@/components/Filters";
+import { candidateView, itemCell } from "@/components/model";
 import { Caveat, Inferred, Quiet, SourceLabel, Spinner } from "@/components/marks";
 import { DatasetsTab, EquipmentTab, ProjectsTab, TabIntro } from "@/components/SideTabs";
 import { SearchProgress } from "@/components/SearchProgress";
@@ -31,6 +32,7 @@ export default function Home() {
   const [nameFilter, setNameFilter] = useState<NameFilter>("all");
   const [orgFilter, setOrgFilter] = useState<OrgFilter>("all");
   const [regionFilter, setRegionFilter] = useState<RegionFilter>("all");
+  const [equipFilter, setEquipFilter] = useState<EquipFilter>(NO_EQUIP_FILTER);
   const [extracting, setExtracting] = useState(false);
   const [extractError, setExtractError] = useState<string | null>(null);
   const [proposal, setProposal] = useState<Extracted | null>(null);
@@ -171,13 +173,24 @@ export default function Home() {
     run({ question: ex.question, methods: ex.methods, equipment: ex.equipment, data: ex.data });
   }
 
+  // 장비 필터: 표의 근거 칸과 같은 계산(논문·연구실·ZEUS 과제 장비·ZEUS 기관 보유)으로 판정
+  const equipOptions = result?.normalized.items.filter((i) => i.kind === "equipment").map((i) => i.label) ?? [];
+  const equipLabel = equipOptions.includes(equipFilter.label) ? equipFilter.label : "all"; // 새 검색에 없는 항목이면 해제
+  const hasEquip = (c: SearchResult["candidates"][number]) => {
+    if (equipLabel === "all") return true;
+    const { hits } = itemCell(candidateView(c, side).table, equipLabel);
+    return hits.some((h) => h === "paper" || h === "lab" || h === "zeusPi" || (equipFilter.scope === "institution" && h === "zeusInst"));
+  };
+  const equipPending = side.equip.state === "loading" || side.labs.state === "loading";
+
   // 지역 외 필터를 먼저 걸고, 남은 후보로 지역별 수를 센다 (선택지에 0명 지역이 안 보이도록)
   const preRegion =
     result?.candidates.filter(
       (c) =>
         (!onlyEvidence || c.items.some((i) => i.evidence)) &&
         (nameFilter === "all" || (nameFilter === "korean") === c.koreanName) &&
-        (orgFilter === "all" || orgFilter === c.orgKind),
+        (orgFilter === "all" || orgFilter === c.orgKind) &&
+        hasEquip(c),
     ) ?? [];
   const regionCounts = new Map<string | null, number>();
   for (const c of preRegion) regionCounts.set(c.sido ?? null, (regionCounts.get(c.sido ?? null) ?? 0) + 1);
@@ -415,6 +428,10 @@ export default function Home() {
                           region={regionFilter}
                           setRegion={setRegionFilter}
                           regionCounts={regionCounts}
+                          equip={{ ...equipFilter, label: equipLabel }}
+                          setEquip={setEquipFilter}
+                          equipOptions={equipOptions}
+                          equipPending={equipPending}
                           count={filtered.length}
                           total={result.candidates.length}
                         />
@@ -424,6 +441,18 @@ export default function Home() {
                       </Caveat>
                       {result.candidates.length === 0 ? (
                         <Quiet icon={SearchX}>조건에 맞는 한국 소속 논문을 찾지 못했습니다. 질문을 더 일반적인 표현으로 바꿔 보세요.</Quiet>
+                      ) : filtered.length === 0 && equipLabel !== "all" && equipFilter.scope === "person" ? (
+                        <Quiet>
+                          논문 초록·연구실 페이지·본인 과제 장비에서 「{equipLabel}」 근거가 확인된 후보가 없습니다. 초록에 장비 이름을 잘 쓰지 않는 분야라면{" "}
+                          <button
+                            type="button"
+                            onClick={() => setEquipFilter({ ...equipFilter, scope: "institution" })}
+                            className="font-medium text-primary underline underline-offset-[3px]"
+                          >
+                            소속 기관 보유 장비까지 포함
+                          </button>
+                          해서 보거나, 후보를 눌러 논문 본문 확인 결과를 보세요.
+                        </Quiet>
                       ) : filtered.length === 0 ? (
                         <Quiet>필터 조건에 맞는 후보가 없습니다. 필터를 풀어 보세요.</Quiet>
                       ) : (

@@ -17,6 +17,10 @@ export const metadata: Metadata = {
   description: "연구 주제와 방법을 넣으면, 그 주제를 그 방법으로 연구해본 근거가 있는 한국 연구자를 논문 링크와 함께 보여줍니다.",
 };
 
+// 페이지 하나짜리 앱이라 페이지 간 이동이 없다. Next 16의 "즉시 이동(instant)" 검증은 개발 모드에서만
+// 오버레이 경고를 띄우고 빌드·배포에는 영향이 없어서 끈다.
+export const instant = false;
+
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
