@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import Link from "next/link";
 import { AlertCircle, BookOpenCheck, CircleCheck, Info, RotateCcw, SearchX, Unplug, X } from "lucide-react";
 import type { Extracted } from "@/app/api/extract/route";
 import type { DatasetsResult, LabPagesResult, ProjectsResult, SearchInput, SearchProgressEvent, SearchResult } from "@/lib/types";
@@ -250,7 +251,12 @@ export default function Home() {
               LabFit <span className="text-primary">KR</span>
             </span>
           </button>
-          <span className="text-sm text-muted-foreground">고등학생 R&amp;E 지도교수 찾기</span>
+          <div className="flex items-center gap-4 text-sm">
+            <span className="hidden text-muted-foreground sm:inline">고등학생 R&amp;E 지도교수 찾기</span>
+            <Link href="/overview" className="text-foreground/80 underline-offset-4 hover:text-primary hover:underline">
+              서비스 소개
+            </Link>
+          </div>
         </div>
       </header>
 
