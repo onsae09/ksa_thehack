@@ -14,6 +14,13 @@ export async function POST(req: Request) {
       ? body.institutions.map((i: { id?: unknown; name?: unknown }) => ({ id: String(i?.id ?? ""), name: String(i?.name ?? "") }))
       : [],
     names: Array.isArray(body?.names) ? body.names.map(String) : [],
+    candidates: Array.isArray(body?.candidates)
+      ? body.candidates.map((c: Record<string, unknown>) => ({
+          authorId: String(c?.authorId ?? ""),
+          name: String(c?.name ?? ""),
+          institutionId: String(c?.institutionId ?? ""),
+        }))
+      : [],
   };
   if (input.items.length === 0) return Response.json({ error: "장비 항목이 없습니다." }, { status: 400 });
 
@@ -27,6 +34,6 @@ export async function POST(req: Request) {
     return Response.json(result);
   } catch (e) {
     console.error("[equipment]", e instanceof Error ? e.message : e);
-    return Response.json({ status: "failed", items: [], byInstitution: {}, byName: {} } satisfies EquipmentResult);
+    return Response.json({ status: "failed", items: [], byInstitution: {}, byName: {}, byCandidate: {} } satisfies EquipmentResult);
   }
 }

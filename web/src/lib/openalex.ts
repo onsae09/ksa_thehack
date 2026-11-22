@@ -108,6 +108,10 @@ export async function collectPapers(queries: string[]): Promise<PaperWithPI[]> {
     throw new Error("논문 검색(OpenAlex)에 실패했습니다. 잠시 후 다시 시도해 주세요.");
   }
 
+  return toPapers(works);
+}
+
+function toPapers(works: OAWork[]): PaperWithPI[] {
   const seen = new Set<string>();
   const out: PaperWithPI[] = [];
   for (const w of works) {
@@ -126,6 +130,30 @@ export async function collectPapers(queries: string[]): Promise<PaperWithPI[]> {
     });
   }
   return out;
+}
+
+/**
+ * DOI 목록(Exa 의미 검색 결과)을 OpenAlex 논문으로 바꾼다. 한국 소속·최근 6년·초록 있는 것만, PI 판정 규칙은 같다.
+ * 실패하면 빈 배열.
+ */
+export async function collectByDoi(dois: string[]): Promise<PaperWithPI[]> {
+  if (dois.length === 0) return [];
+  const fromYear = new Date().getFullYear() - 6;
+  const chunks = Array.from({ length: Math.ceil(dois.length / 50) }, (_, i) => dois.slice(i * 50, (i + 1) * 50));
+  const settled = await Promise.allSettled(
+    chunks.map(async (chunk) => {
+      const params = new URLSearchParams({
+        filter: `doi:${chunk.join("|")},authorships.institutions.country_code:KR,from_publication_date:${fromYear}-01-01,has_abstract:true`,
+        per_page: "50",
+        select: "id,doi,title,publication_year,authorships,abstract_inverted_index",
+      });
+      if (process.env.OPENALEX_API_KEY) params.set("api_key", process.env.OPENALEX_API_KEY);
+      const res = await fetch(`${BASE}/works?${params}`, { signal: AbortSignal.timeout(15000) });
+      if (!res.ok) throw new Error(`OpenAlex ${res.status}`);
+      return ((await res.json()) as { results: OAWork[] }).results;
+    }),
+  );
+  return toPapers(settled.flatMap((s) => (s.status === "fulfilled" ? s.value : [])));
 }
 
 /**

@@ -3,9 +3,11 @@
  *
  * 1) 장비 항목별: 전국 등록 수, 외부 이용 가능(공동활용허용·서비스) 수, 외부 이용 가능 장비 상위 5개 상세
  * 2) 후보 소속 기관별: "장비명 + 한국어 기관명"으로 검색해 그 기관이 보유한 장비만 남긴다
+ * 2-1) 같은 기관 장비의 구축 과제 연구책임자가 OpenAlex 후보 영문 이름과 표기가 맞으면 그 후보에 연결
  * 3) 국내(DBpia) 후보 이름별: "장비명 + 이름"으로 검색하고, 상세의 연구책임자가 그 이름과 같을 때만 남긴다
  */
-import { fetchEquipDetail, normOrgan, searchEquip, zeusKeyword, zeusSearchUrl, type ZeusDetail, type ZeusListItem } from "./zeus";
+import { koreanInstitutionNames, koreanNameMatches, sameOrgan } from "./kornames";
+import { fetchEquipDetail, searchEquip, zeusKeyword, zeusSearchUrl, type ZeusDetail, type ZeusListItem } from "./zeus";
 
 const TOP_DETAILS = 5;
 
@@ -13,6 +15,7 @@ export type EquipmentRequest = {
   items: { label: string; inferred: boolean }[];
   institutions: { id: string; name: string }[]; // OpenAlex 기관 ID·영문명
   names: string[]; // 국내 후보의 한국어 이름
+  candidates?: { authorId: string; name: string; institutionId: string }[]; // OpenAlex 후보 (연구책임자 이름 매칭용)
 };
 
 export type ItemEquipment = {
@@ -37,38 +40,9 @@ export type EquipmentResult = {
   items: ItemEquipment[];
   byInstitution: Record<string, InstitutionEquipment>;
   byName: Record<string, NameEquipment>;
+  /** OpenAlex 후보(authorId)별: 같은 기관 장비 중 구축 과제 연구책임자 이름 표기가 맞는 것 */
+  byCandidate: Record<string, NameEquipment>;
 };
-
-const koNameCache = new Map<string, string | null>();
-
-/** OpenAlex 기관의 다른 이름 중 한글이 들어간 것 (예: Seoul National University → 서울대학교) */
-async function koreanInstitutionNames(ids: string[]): Promise<Map<string, string>> {
-  const out = new Map<string, string>();
-  const need = ids.filter((id) => !koNameCache.has(id));
-  if (need.length) {
-    try {
-      const params = new URLSearchParams({
-        filter: `id:${need.join("|")}`,
-        select: "id,display_name_alternatives",
-        per_page: "50",
-      });
-      if (process.env.OPENALEX_API_KEY) params.set("api_key", process.env.OPENALEX_API_KEY);
-      const res = await fetch(`https://api.openalex.org/institutions?${params}`, { signal: AbortSignal.timeout(10000) });
-      const data = (await res.json()) as { results: { id: string; display_name_alternatives: string[] }[] };
-      for (const r of data.results ?? []) {
-        const ko = r.display_name_alternatives?.find((n) => /[가-힣]/.test(n)) ?? null;
-        koNameCache.set(r.id.replace("https://openalex.org/", ""), ko);
-      }
-    } catch {
-      // 기관명 매칭만 빠진다
-    }
-  }
-  for (const id of ids) {
-    const ko = koNameCache.get(id);
-    if (ko) out.set(id, ko);
-  }
-  return out;
-}
 
 async function itemOverview(label: string, inferred: boolean): Promise<ItemEquipment> {
   const keyword = zeusKeyword(label);
@@ -94,7 +68,7 @@ async function itemOverview(label: string, inferred: boolean): Promise<ItemEquip
 
 export async function lookupEquipment(req: EquipmentRequest): Promise<EquipmentResult> {
   const items = req.items.slice(0, 4);
-  if (items.length === 0) return { status: "ok", items: [], byInstitution: {}, byName: {} };
+  if (items.length === 0) return { status: "ok", items: [], byInstitution: {}, byName: {}, byCandidate: {} };
 
   const overviewP = Promise.allSettled(items.map((it) => itemOverview(it.label, it.inferred)));
 
@@ -110,7 +84,7 @@ export async function lookupEquipment(req: EquipmentRequest): Promise<EquipmentR
           try {
             const r = await searchEquip(keyword);
             // 설명에 기관명이 나올 뿐인 다른 기관 장비는 뺀다
-            const mine = r.items.filter((x) => normOrgan(x.organ).includes(normOrgan(koName)));
+            const mine = r.items.filter((x) => sameOrgan(x.organ, koName));
             return { label: it.label, items: mine, more: r.total > r.items.length, searchUrl: zeusSearchUrl(keyword, false) };
           } catch {
             return { label: it.label, items: [], more: false, searchUrl: zeusSearchUrl(keyword, false) };
@@ -118,6 +92,21 @@ export async function lookupEquipment(req: EquipmentRequest): Promise<EquipmentR
         }),
       );
       if (perItem.some((p) => p.items.length)) byInstitution[id] = { koName, perItem };
+    }),
+  );
+
+  // OpenAlex 후보: 소속 기관 장비 상위 몇 대의 상세에서 연구책임자 이름 표기가 맞는지
+  const byCandidate: Record<string, NameEquipment> = {};
+  await Promise.all(
+    (req.candidates ?? []).slice(0, 15).map(async (c) => {
+      const inst = byInstitution[c.institutionId];
+      if (!inst) return;
+      const found: NameEquipment = [];
+      for (const p of inst.perItem) {
+        const details = await Promise.all(p.items.slice(0, 4).map((x) => fetchEquipDetail(x.id)));
+        for (const d of details) if (d?.pi && koreanNameMatches(d.pi, c.name)) found.push({ label: p.label, equip: d });
+      }
+      if (found.length) byCandidate[c.authorId] = found;
     }),
   );
 
@@ -142,12 +131,13 @@ export async function lookupEquipment(req: EquipmentRequest): Promise<EquipmentR
 
   const overview = await overviewP;
   if (overview.every((o) => o.status === "rejected")) {
-    return { status: "failed", items: [], byInstitution, byName };
+    return { status: "failed", items: [], byInstitution, byName, byCandidate };
   }
   return {
     status: "ok",
     items: overview.flatMap((o) => (o.status === "fulfilled" ? [o.value] : [])),
     byInstitution,
     byName,
+    byCandidate,
   };
 }

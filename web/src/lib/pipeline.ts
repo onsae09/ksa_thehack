@@ -1,9 +1,11 @@
+import { checkAffiliations } from "./affiliation";
 import { runDomestic } from "./domestic";
 import { similarities } from "./embed";
 import { isKoreanName, orgKind } from "./names";
 import { axisScore, fitLabel, round3, W_METHOD, W_TOPIC } from "./scoring";
 import { normalize } from "./normalize";
-import { collectPapers, fetchAuthorWorks, type PaperWithPI } from "./openalex";
+import { exaPaperDois } from "./exa";
+import { collectByDoi, collectPapers, fetchAuthorWorks, type PaperWithPI } from "./openalex";
 import type { Candidate, CheckItem, Evidence, ItemResult, Paper, SearchInput, SearchResult } from "./types";
 
 const TOP_N = 15; // 화면에서 필터를 건 뒤 상위 5명을 보여주므로 넉넉히 계산
@@ -49,7 +51,15 @@ export async function runSearch(input: SearchInput): Promise<SearchResult> {
   // 국내(DBpia)는 별도 섹션. OpenAlex와 병렬로 돌리고, 실패해도 전체 결과에는 영향 없음
   const domesticP = runDomestic(input.question, normalized);
   // 주제 검색어 + 방법·장비 검색어: 주제가 달라도 필요한 방법·장비를 갖춘 연구실을 후보 풀에 넣는다
-  const papers = await collectPapers([...normalized.search_queries, ...normalized.method_search_queries]);
+  // + Exa 의미 검색(키가 있을 때만): 키워드가 달라 놓친 논문의 DOI → OpenAlex에서 저자·소속
+  const [keywordPapers, exaPapers] = await Promise.all([
+    collectPapers([...normalized.search_queries, ...normalized.method_search_queries]),
+    exaPaperDois([normalized.query_en, normalized.method_query_en])
+      .then(collectByDoi)
+      .catch(() => [] as PaperWithPI[]),
+  ]);
+  const seenIds = new Set(keywordPapers.map((p) => p.id));
+  const papers = [...keywordPapers, ...exaPapers.filter((p) => !seenIds.has(p.id))];
   if (papers.length === 0) {
     return { normalized, candidates: [], domestic: await domesticP, stats: { papers: 0, authors: 0, ms: Date.now() - t0 } };
   }
@@ -74,7 +84,11 @@ export async function runSearch(input: SearchInput): Promise<SearchResult> {
   const top = scored.slice(0, TOP_N);
 
   // 근거 보강: 상위 후보의 최근 논문(주제 무관)에서도 방법·장비 문장을 찾는다
-  const extra = await fetchAuthorWorks(top.map(({ ps }) => ps[0].pi.authorId));
+  // 현재 소속 확인도 함께 (요청 1번)
+  const [extra, affiliations] = await Promise.all([
+    fetchAuthorWorks(top.map(({ ps }) => ps[0].pi.authorId)),
+    checkAffiliations(top.map(({ ps }) => ({ authorId: ps[0].pi.authorId, institutionId: ps[0].pi.institutionId }))),
+  ]);
 
   const candidates: Candidate[] = top.map(({ ps, T, M, score }) => {
     const pi = ps[0].pi;
@@ -94,6 +108,7 @@ export async function runSearch(input: SearchInput): Promise<SearchResult> {
       institutionId: pi.institutionId,
       institutionType: pi.institutionType,
       orgKind: orgKind(pi.institutionType),
+      affiliation: affiliations.get(pi.authorId) ?? { status: "unknown", lastYear: null, note: null },
       koreanName: isKoreanName(pi.name),
       T: round3(T.value),
       fit: fitLabel(T.s1),
@@ -115,6 +130,11 @@ export async function runSearch(input: SearchInput): Promise<SearchResult> {
     normalized,
     candidates,
     domestic: await domesticP,
-    stats: { papers: papers.length, authors: byPI.size, ms: Date.now() - t0 },
+    stats: {
+      papers: papers.length,
+      authors: byPI.size,
+      ms: Date.now() - t0,
+      exaPapers: exaPapers.filter((p) => !seenIds.has(p.id)).length,
+    },
   };
 }

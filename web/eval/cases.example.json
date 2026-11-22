@@ -1,0 +1,14 @@
+[
+  {
+    "id": "예시-직접입력",
+    "question": "탁구공의 회전이 반발 궤적에 주는 영향을 모델링할 수 있는가",
+    "methods": ["시뮬레이션", "실험"],
+    "equipment": "고속카메라",
+    "advisor": { "name": "김경천", "name_en": "Kyung Chun Kim", "affiliation": "부산대학교" }
+  },
+  {
+    "id": "예시-제안서PDF",
+    "pdf": "eval/pdfs/선배A.pdf",
+    "advisor": { "name": "", "name_en": "", "affiliation": "" }
+  }
+]

@@ -12,6 +12,7 @@ const Schema = z.object({
   method_query_en: z.string(),
   method_search_queries: z.array(z.string()),
   method_search_queries_ko: z.array(z.string()),
+  ntis_queries_ko: z.array(z.string()),
   // 학생이 적은 항목(방법·장비) 각각의 키워드. label은 입력 그대로.
   given: z.array(z.object({ label: z.string(), keywords_en: z.array(z.string()), keywords_ko: z.array(z.string()) })),
   // 장비 칸이 비었을 때만 채운다
@@ -27,6 +28,7 @@ Return:
 - method_query_en: ONE English sentence describing HOW the research is done, phrased like a methods-focused abstract sentence, independent of the topic (e.g. "Experiments using a spatial light modulator to shape laser beams and off-axis digital holography to measure complex optical fields, combined with numerical wave propagation simulation."). Name the key instruments/techniques.
 - method_search_queries: exactly 2 short English queries (2-5 words) that find papers USING the key equipment/technique, regardless of topic (e.g. "off-axis digital holography", "spatial light modulator beam shaping").
 - method_search_queries_ko: exactly 1 short Korean query for the key equipment/technique (e.g. "디지털 홀로그래피").
+- ntis_queries_ko: exactly 3 Korean queries for searching Korean national R&D project TITLES (NTIS). The search matches any word, so each query must be 1-2 formal technical nouns that would appear in a government project title, not student phrasing (e.g. for a table-tennis spin study: "회전체 공기역학", "마그누스 효과", "유동 가시화"; for holography: "디지털 홀로그래피", "공간 광변조기", "빔 성형"). Mix topic and method terms. No generic words like "분석", "연구", "모델링", "데이터" on their own.
 - given: one entry for EVERY label listed under "ITEMS", in the same order, label copied exactly.
 - inferred_equipment: only if the student left equipment empty, 1-3 equipment/tools/data the research most likely needs, with a short Korean label. Otherwise an empty array.
 
@@ -113,6 +115,7 @@ export async function normalize(input: SearchInput): Promise<Normalized> {
     method_query_en: out.method_query_en,
     method_search_queries: out.method_search_queries.slice(0, 2),
     method_search_queries_ko: out.method_search_queries_ko.slice(0, 1),
+    ntis_queries_ko: out.ntis_queries_ko.slice(0, 3),
     items,
   };
 }

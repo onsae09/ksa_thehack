@@ -39,3 +39,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# 평가용 연구제안서 PDF와 결과는 커밋하지 않는다 (개인 자료)
+eval/pdfs/
+eval/results-*.json
+eval/cases.json
