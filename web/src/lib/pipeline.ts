@@ -1,4 +1,5 @@
 import { checkAffiliations } from "./affiliation";
+import { fetchInstitutionGeo, type InstitutionGeo } from "./region";
 import { runDomestic } from "./domestic";
 import { similarities } from "./embed";
 import { isKoreanName, orgKind } from "./names";
@@ -87,9 +88,11 @@ export async function runSearch(input: SearchInput): Promise<SearchResult> {
 
   // 근거 보강: 상위 후보의 최근 논문(주제 무관)에서도 방법·장비 문장을 찾는다
   // 현재 소속 확인도 함께 (요청 1번)
-  const [extra, affiliations] = await Promise.all([
+  // 기관 위치(시·도)는 통학 지역 필터용
+  const [extra, affiliations, geo] = await Promise.all([
     fetchAuthorWorks(top.map(({ ps }) => ps[0].pi.authorId)),
     checkAffiliations(top.map(({ ps }) => ({ authorId: ps[0].pi.authorId, institutionId: ps[0].pi.institutionId }))),
+    fetchInstitutionGeo(top.map(({ ps }) => ps[0].pi.institutionId)).catch(() => new Map<string, InstitutionGeo>()),
   ]);
 
   const candidates: Candidate[] = top.map(({ ps, T, M, score }) => {
@@ -110,6 +113,7 @@ export async function runSearch(input: SearchInput): Promise<SearchResult> {
       institutionId: pi.institutionId,
       institutionType: pi.institutionType,
       orgKind: orgKind(pi.institutionType),
+      sido: geo.get(pi.institutionId)?.sido ?? null,
       affiliation: affiliations.get(pi.authorId) ?? { status: "unknown", lastYear: null, note: null },
       koreanName: isKoreanName(pi.name),
       T: round3(T.value),

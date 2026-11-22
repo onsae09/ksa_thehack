@@ -1,8 +1,7 @@
+import { cached } from "@/lib/diskcache";
 import { lookupEquipment, type EquipmentRequest, type EquipmentResult } from "@/lib/equipment";
 
 export const maxDuration = 60;
-
-const cache = new Map<string, EquipmentResult>();
 
 export async function POST(req: Request) {
   const body = await req.json().catch(() => null);
@@ -24,13 +23,8 @@ export async function POST(req: Request) {
   };
   if (input.items.length === 0) return Response.json({ error: "장비 항목이 없습니다." }, { status: 400 });
 
-  const key = JSON.stringify(input);
-  const hit = cache.get(key);
-  if (hit) return Response.json(hit);
-
   try {
-    const result = await lookupEquipment(input);
-    if (result.status === "ok") cache.set(key, result);
+    const result = await cached("equipment-v1", input, () => lookupEquipment(input), (r) => r.status === "ok");
     return Response.json(result);
   } catch (e) {
     console.error("[equipment]", e instanceof Error ? e.message : e);

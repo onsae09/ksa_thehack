@@ -66,7 +66,8 @@ for (const c of cases) {
     }
     if (!advisor?.name && !advisor?.name_en) throw new Error("정답 교수(advisor)가 없습니다");
 
-    const r = await post("/api/search", input);
+    // fresh: 파일 캐시를 건너뛰고 새로 검색 (코드 변경 효과를 재야 하므로)
+    const r = await post("/api/search", { ...input, fresh: true });
     const mainRank = r.candidates.findIndex((x) => isAdvisor(advisor, x.name)) + 1;
     const domRank =
       r.domestic.candidates.findIndex((x) => isAdvisor(advisor, x.name) || isAdvisor(advisor, x.nameEn)) + 1;

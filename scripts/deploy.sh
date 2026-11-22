@@ -4,7 +4,7 @@
 set -euo pipefail
 HOST=ubuntu@146.56.97.2
 cd "$(dirname "$0")/../web"
-rsync -az --delete --exclude node_modules --exclude .next --exclude '.env*' ./ "$HOST:~/labfit/"
+rsync -az --delete --exclude node_modules --exclude .next --exclude '.env*' --exclude .cache ./ "$HOST:~/labfit/"
 ssh "$HOST" 'set -e; export PATH=$HOME/.nvm/versions/node/v24.22.1/bin:$PATH; cd ~/labfit
   npx -y pnpm@11.2.2 install --frozen-lockfile >/dev/null
   npx -y pnpm@11.2.2 build | tail -3

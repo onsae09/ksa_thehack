@@ -44,3 +44,6 @@ next-env.d.ts
 eval/pdfs/
 eval/results-*.json
 eval/cases.json
+
+# 검색 결과 파일 캐시 (서버에서 유지)
+/.cache/

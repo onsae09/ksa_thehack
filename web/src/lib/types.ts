@@ -58,6 +58,8 @@ export type Candidate = {
   institutionId: string;
   institutionType: string;
   orgKind: "university" | "institute";
+  /** 기관 소재 시·도 (OpenAlex 기관 위치 기준, 모르면 null). 예전 캐시 결과에는 없을 수 있다 */
+  sido?: string | null;
   /** 현재 소속 확인 (OpenAlex 저자 기록의 기관별 연도 기준) */
   affiliation: AffiliationCheck;
   koreanName: boolean; // 이름 기준 추정
@@ -95,6 +97,8 @@ export type SearchResult = {
   candidates: Candidate[];
   domestic: { status: "ok" | "failed"; candidates: DomesticCandidate[] };
   stats: { papers: number; authors: number; ms: number; exaPapers?: number }; // exaPapers: Exa 의미 검색으로 추가된 논문 수
+  /** 저장된 결과를 돌려준 경우 처음 검색한 시각 (새로 검색한 응답에는 없음) */
+  cachedAt?: string;
 };
 
 /** current: 최근 2년 안에 이 기관 소속으로 논문 있음 / stale: 마지막이 오래됨(이동·은퇴 가능) / unknown: 기록 없음 */

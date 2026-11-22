@@ -1,9 +1,9 @@
+import { cached } from "@/lib/diskcache";
 import { lookupProjects, type ProjectsRequest } from "@/lib/projects";
 import type { ProjectsResult } from "@/lib/types";
 
 export const maxDuration = 60;
 
-const cache = new Map<string, ProjectsResult>();
 const FAILED: ProjectsResult = { status: "failed", projects: [], byCandidate: {}, byDomestic: {}, others: [] };
 
 export async function POST(req: Request) {
@@ -22,13 +22,8 @@ export async function POST(req: Request) {
   };
   if (!input.question) return Response.json({ error: "연구 질문이 필요합니다." }, { status: 400 });
 
-  const key = JSON.stringify(input);
-  const hit = cache.get(key);
-  if (hit) return Response.json(hit);
-
   try {
-    const result = await lookupProjects(input);
-    if (result.status === "ok") cache.set(key, result);
+    const result = await cached("projects-v1", input, () => lookupProjects(input), (r) => r.status === "ok");
     return Response.json(result);
   } catch (e) {
     console.error("[projects]", e instanceof Error ? e.message : e);

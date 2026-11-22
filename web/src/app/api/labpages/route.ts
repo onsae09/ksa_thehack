@@ -1,10 +1,9 @@
+import { cached } from "@/lib/diskcache";
 import { exaEnabled, findLabPage } from "@/lib/exa";
 import { koreanInstitutionNames } from "@/lib/kornames";
 import type { LabPage, LabPagesResult } from "@/lib/types";
 
 export const maxDuration = 60;
-
-const cache = new Map<string, LabPagesResult>();
 
 type Body = {
   candidates?: { authorId?: unknown; name?: unknown; institution?: unknown; institutionId?: unknown }[];
@@ -30,30 +29,32 @@ export async function POST(req: Request) {
   }));
   if (candidates.length === 0) return Response.json({ status: "ok", byCandidate: {} } satisfies LabPagesResult);
 
-  const key = JSON.stringify({ candidates, items });
-  const hit = cache.get(key);
-  if (hit) return Response.json(hit);
-
   try {
-    const koInst = await koreanInstitutionNames(candidates.map((c) => c.institutionId));
-    const settled = await Promise.allSettled(
-      candidates.map((c) =>
-        findLabPage({ name: c.name, institution: c.institution, institutionKo: koInst.get(c.institutionId) ?? null, items }),
-      ),
-    );
-    if (settled.every((s) => s.status === "rejected")) {
-      console.error("[labpages]", settled[0].status === "rejected" ? settled[0].reason : "");
-      return Response.json({ status: "failed", byCandidate: {} } satisfies LabPagesResult);
-    }
-    const byCandidate: Record<string, LabPage> = {};
-    settled.forEach((s, i) => {
-      if (s.status === "fulfilled" && s.value) byCandidate[candidates[i].authorId] = s.value;
-    });
-    const result: LabPagesResult = { status: "ok", byCandidate };
-    cache.set(key, result);
+    const result = await cached("labpages-v1", { candidates, items }, () => findAll(candidates, items), (r) => r.status === "ok");
     return Response.json(result);
   } catch (e) {
     console.error("[labpages]", e instanceof Error ? e.message : e);
     return Response.json({ status: "failed", byCandidate: {} } satisfies LabPagesResult);
   }
+}
+
+type Cand = { authorId: string; name: string; institution: string; institutionId: string };
+type Item = { label: string; keywords_ko: string[]; keywords_en: string[] };
+
+async function findAll(candidates: Cand[], items: Item[]): Promise<LabPagesResult> {
+  const koInst = await koreanInstitutionNames(candidates.map((c) => c.institutionId));
+  const settled = await Promise.allSettled(
+    candidates.map((c) =>
+      findLabPage({ name: c.name, institution: c.institution, institutionKo: koInst.get(c.institutionId) ?? null, items }),
+    ),
+  );
+  if (settled.every((s) => s.status === "rejected")) {
+    console.error("[labpages]", settled[0].status === "rejected" ? settled[0].reason : "");
+    return { status: "failed", byCandidate: {} };
+  }
+  const byCandidate: Record<string, LabPage> = {};
+  settled.forEach((s, i) => {
+    if (s.status === "fulfilled" && s.value) byCandidate[candidates[i].authorId] = s.value;
+  });
+  return { status: "ok", byCandidate };
 }

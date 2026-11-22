@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { readCache, writeCache, cacheKey } from "@/lib/diskcache";
 
 export const maxDuration = 60;
 
@@ -51,8 +52,12 @@ export async function POST(req: Request) {
   if (!name) return Response.json({ error: "이름이 필요합니다." }, { status: 400 });
 
   const key = `${name}|${institution}`;
-  const hit = cache.get(key);
-  if (hit) return Response.json(hit);
+  const fileKey = cacheKey(key);
+  const hit = cache.get(key) ?? (await readCache<EmailResult>("email-v1", fileKey))?.value;
+  if (hit) {
+    cache.set(key, hit);
+    return Response.json(hit);
+  }
 
   try {
     const messages: Anthropic.MessageParam[] = [
@@ -86,6 +91,7 @@ export async function POST(req: Request) {
     if (!m) {
       const out: EmailResult = { email: null, source: null, verified: false };
       cache.set(key, out);
+      await writeCache("email-v1", fileKey, out);
       return Response.json(out);
     }
     const email = m[1].replace(/[.,;)]+$/, "");
@@ -101,6 +107,7 @@ export async function POST(req: Request) {
     // 검증 2: 서버가 직접 출처 페이지를 열어 확인 (스크립트로 그리는 페이지는 실패할 수 있음)
     const out: EmailResult = { email, source, verified: inFetched || (await verifyOnPage(email, source)) };
     cache.set(key, out);
+    await writeCache("email-v1", fileKey, out);
     return Response.json(out);
   } catch (e) {
     console.error("[email]", e instanceof Error ? e.message : e);
