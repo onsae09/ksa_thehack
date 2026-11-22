@@ -169,6 +169,9 @@ export default function Home() {
   }
 
   function pickExample(ex: (typeof EXAMPLES)[number]) {
+    // 예시는 제안서와 무관하므로 올렸던 제안서(연락 예정 교수 등)를 지운다
+    setProposal(null);
+    setFileName(null);
     setQuestion(ex.question);
     setMethods(ex.methods);
     setEquipment(ex.equipment);
@@ -259,6 +262,8 @@ export default function Home() {
               setError(null);
               setLoading(false);
               setEditing(false);
+              setProposal(null);
+              setFileName(null);
             }}
             className="flex items-center gap-2 text-foreground"
             aria-label="LabFit KR 처음으로"

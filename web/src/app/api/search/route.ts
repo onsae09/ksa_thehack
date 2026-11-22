@@ -68,7 +68,7 @@ export async function POST(req: Request) {
         send({ type: "result", result });
       } catch (e) {
         console.error(e);
-        send({ type: "error", error: e instanceof Error ? e.message : "알 수 없는 오류" });
+        send({ type: "error", error: "검색 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요." }); // 원문은 서버 로그에만
       }
     });
   }
@@ -77,7 +77,7 @@ export async function POST(req: Request) {
     return Response.json(await search());
   } catch (e) {
     console.error(e);
-    return Response.json({ error: e instanceof Error ? e.message : "알 수 없는 오류" }, { status: 500 });
+    return Response.json({ error: "검색 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요." }, { status: 500 });
   }
 }
 

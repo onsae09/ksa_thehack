@@ -90,8 +90,11 @@ export async function POST(req: Request) {
     const m = text.match(/EMAIL:\s*([^\s|]+@[^\s|]+)\s*\|\s*SOURCE:\s*(\S+)/i);
     if (!m) {
       const out: EmailResult = { email: null, source: null, verified: false };
-      cache.set(key, out);
-      await writeCache("email-v1", fileKey, out);
+      // 모델이 끝까지 찾아보고 "없음"이라고 답한 경우만 저장. 중간에 멈췄거나 형식이 틀린 답은 일시적 실패로 보고 저장하지 않는다
+      if (res?.stop_reason === "end_turn" && /EMAIL:\s*NONE/i.test(text)) {
+        cache.set(key, out);
+        await writeCache("email-v1", fileKey, out);
+      }
       return Response.json(out);
     }
     const email = m[1].replace(/[.,;)]+$/, "");
