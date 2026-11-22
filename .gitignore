@@ -1,0 +1,5 @@
+# 학생 연락처(전화번호·이메일)가 들어 있는 연구제안서 원본은 올리지 않는다
+*연구제안서*.pdf
+*.hwpx
+.DS_Store
+web/tsconfig.tsbuildinfo
