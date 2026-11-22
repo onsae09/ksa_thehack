@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Instrument_Sans } from "next/font/google";
 import Overview from "./Overview";
 
-// 영문 워드마크·숫자 전용. 한글은 전역 Pretendard로 그대로 그린다.
+// 영문 워드마크·숫자 전용. 한글은 전역 글꼴(본문 IBM Plex Sans KR, 제목 마루부리)로 그린다.
 const latin = Instrument_Sans({
   subsets: ["latin"],
   axes: ["wdth"],

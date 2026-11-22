@@ -8,9 +8,25 @@
  * 출처(논문·연구실·ZEUS·NTIS)는 색 + 아이콘 + 글자로 함께 표시한다 (색만으로 구분하지 않음).
  */
 
+/* 제목용 마루부리 (네이버, SIL OFL 1.1). 네이버 한글 공식 웹폰트 CDN에서 두 굵기만 받는다 */
+@font-face {
+  font-family: "MaruBuri";
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  src: url("https://hangeul.pstatic.net/hangeul_static/webfont/MaruBuri/MaruBuri-Regular.woff2") format("woff2");
+}
+@font-face {
+  font-family: "MaruBuri";
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+  src: url("https://hangeul.pstatic.net/hangeul_static/webfont/MaruBuri/MaruBuri-SemiBold.woff2") format("woff2");
+}
+
 @theme inline {
-  --font-sans: "Pretendard Variable", Pretendard, -apple-system, "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif;
-  --font-serif: var(--font-serif-kr), "AppleMyungjo", "Nanum Myeongjo", serif;
+  --font-sans: var(--font-sans-kr), "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif;
+  --font-serif: "MaruBuri", "AppleMyungjo", "Nanum Myeongjo", serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
   --font-heading: var(--font-serif);
 

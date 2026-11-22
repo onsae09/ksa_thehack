@@ -1,13 +1,13 @@
 import type { Metadata, Viewport } from "next";
-import { Noto_Serif_KR } from "next/font/google";
-import "pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css";
+import { IBM_Plex_Sans_KR } from "next/font/google";
 import "./globals.css";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
-const serifKr = Noto_Serif_KR({
-  weight: ["500", "600"],
+// 본문: IBM Plex Sans KR (OFL) — 단정한 학술·기술 톤. 제목: 마루부리(globals.css @font-face, 네이버 공식 CDN)
+const sansKr = IBM_Plex_Sans_KR({
+  weight: ["400", "500", "600"],
   subsets: ["latin"],
-  variable: "--font-serif-kr",
+  variable: "--font-sans-kr",
   display: "swap",
   preload: false,
 });
@@ -29,7 +29,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="ko" className={`${serifKr.variable} h-full antialiased`}>
+    <html lang="ko" className={`${sansKr.variable} h-full antialiased`}>
       <body className="flex min-h-dvh flex-col">
         <TooltipProvider delayDuration={150}>{children}</TooltipProvider>
       </body>

@@ -32,7 +32,7 @@
   position: relative;
   background: var(--bg);
   color: var(--ink);
-  font-family: "Pretendard Variable", Pretendard, -apple-system, "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif;
+  font-family: var(--font-sans-kr), "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif;
   font-weight: 400;
   word-break: keep-all;
   overflow-wrap: break-word;
@@ -67,7 +67,7 @@
 .wordmark,
 .cardNum,
 .calloutFigure b {
-  font-family: var(--font-latin), "Pretendard Variable", Pretendard, sans-serif;
+  font-family: var(--font-latin), var(--font-sans-kr), sans-serif;
   font-stretch: 91%;
 }
 
@@ -80,8 +80,9 @@
 
 .display {
   margin: 0;
+  font-family: "MaruBuri", "AppleMyungjo", serif;
   font-size: var(--display);
-  font-weight: 500;
+  font-weight: 400;
   line-height: 1.14;
   letter-spacing: -0.02em;
   color: var(--ink);

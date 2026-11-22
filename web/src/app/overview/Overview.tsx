@@ -53,7 +53,11 @@ async function loadBitmap(): Promise<ImageBitmap | null> {
 
 async function loadFonts(latinFamily: string) {
   const sample = HEADLINE.join("") + "네 겹의 근거지어낸 말은 없이";
-  const loads = [400, 500, 600].map((w) => document.fonts.load(`${w} 32px "Pretendard Variable"`, sample));
+  const sans = getComputedStyle(document.documentElement).getPropertyValue("--font-sans-kr").trim() || "sans-serif";
+  const loads = [
+    document.fonts.load(`400 32px "MaruBuri"`, sample), // 제목
+    ...[400, 500].map((w) => document.fonts.load(`${w} 18px ${sans}`, sample)), // 본문
+  ];
   loads.push(document.fonts.load(`500 20px ${latinFamily}`, "LabFit KR 0123456789"));
   await Promise.race([Promise.allSettled(loads), new Promise((r) => setTimeout(r, 2500))]);
 }
