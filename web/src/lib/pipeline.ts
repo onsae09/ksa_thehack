@@ -71,7 +71,9 @@ export async function runSearch(input: SearchInput): Promise<SearchResult> {
   type Scored = PaperWithPI & { similarity: number; methodSimilarity: number };
   const byPI = new Map<string, Scored[]>();
   papers.forEach((p, i) => {
-    byPI.set(p.pi.authorId, [...(byPI.get(p.pi.authorId) ?? []), { ...p, similarity: topicSims[i], methodSimilarity: methodSims[i] }]);
+    // OpenAlex가 한 사람을 저자 ID 여러 개로 나눠 갖는 경우가 있어(같은 이름·같은 기관이 두 번 나옴) 이름+기관으로 묶는다
+    const key = `${p.pi.name.toLowerCase().replace(/[^a-z가-힣]/g, "")}|${p.pi.institutionId}`;
+    byPI.set(key, [...(byPI.get(key) ?? []), { ...p, similarity: topicSims[i], methodSimilarity: methodSims[i] }]);
   });
 
   const scored = [...byPI.values()].map((ps) => {

@@ -7,7 +7,7 @@
  *    필요 장비가 페이지에 적혀 있는지 원문 문장으로만 보여준다.
  */
 import { koreanNameMatches } from "./kornames";
-import type { LabPage } from "./types";
+import { METHOD_OPTIONS, type LabPage } from "./types";
 
 const API = "https://api.exa.ai/search";
 const TIMEOUT = 15000;
@@ -59,10 +59,12 @@ export async function exaPaperDois(queries: string[]): Promise<string[]> {
   const settled = await Promise.allSettled(
     queries.slice(0, 3).map((q) =>
       exaSearch({
-        query: `${q} (research by a Korean university or institute)`,
+        query: q,
+        // 본문(소속 표기)에 Korea가 있는 논문만: 없으면 전 세계 논문이 와서 한국 저자는 25편 중 2편뿐이었음 → 50편 중 24~28편
+        includeText: ["Korea"],
         type: "auto",
         category: "research paper",
-        numResults: 25,
+        numResults: 50,
         startPublishedDate,
         contents: { text: { maxCharacters: 1500 } },
       }),
@@ -129,7 +131,24 @@ export type LabPageQuery = {
   items: { label: string; keywords_ko: string[]; keywords_en: string[] }[];
 };
 
-const OFFICIAL = /\.(ac|re)\.kr|\.edu|kaist|postech|unist|dgist|gist/i;
+const KOREAN_SITE = /^https?:\/\/[^/]*\.(kr|kaist\.edu|postech\.edu)(\/|$)|^https?:\/\/[^/]*(kaist|postech|unist|dgist|gist)\./i;
+const OFFICIAL_KR = /^https?:\/\/[^/]*\.(ac|re|go)\.kr(\/|$)|^https?:\/\/[^/]*(kaist|postech|unist|dgist|gist)\./i;
+const FOREIGN = /^https?:\/\/[^/]*\.(cn|jp|tw|hk|sg|de|uk|fr|in|ru)(\/|$)/i;
+
+/** 교수진 목록처럼 여러 사람이 나오는 페이지면, 그 사람 이름 주변 글만 근거로 쓴다 */
+function personWindow(text: string, enName: string, koName: string | null): string {
+  const others = new Set([...text.matchAll(/([가-힣]{2,4})\s*교수/g)].map((m) => m[1]));
+  if (others.size < 3) return text; // 한 사람 페이지
+  const low = text.toLowerCase();
+  const tokens = enName.toLowerCase().split(/[\s,.\-‐]+/).filter((t) => t.length > 1);
+  let at = koName ? text.indexOf(koName) : -1;
+  if (at < 0 && tokens.length) at = low.indexOf(tokens[tokens.length - 1] === "kim" ? tokens[0] : tokens[tokens.length - 1]);
+  if (at < 0) return "";
+  // 다음 사람 이름이 나오기 전까지 (최대 1500자)
+  const after = text.slice(at, at + 1500);
+  const next = [...after.matchAll(/([가-힣]{2,4})\s*교수/g)].find((m) => m.index > 20 && m[1] !== koName);
+  return next ? after.slice(0, next.index) : after;
+}
 const EXCLUDED =
   /researchgate|linkedin|scholar\.google|orcid|openalex|semanticscholar|doi\.org|sciencedirect|springer|wiley|ieee|mdpi|dbpia|kci\.go/i;
 
@@ -157,13 +176,19 @@ export async function findLabPage(q: LabPageQuery): Promise<LabPage | null> {
     if (mentionsName(head, q.name)) score += 2;
     if (koName) score += 2;
     if (score < 2) continue;
-    if (OFFICIAL.test(r.url)) score += 1;
+    // 한국 대학·연구소 공식 페이지 우선, 해외 페이지(강연 안내 등)는 감점
+    if (OFFICIAL_KR.test(r.url)) score += 3;
+    else if (KOREAN_SITE.test(r.url)) score += 1;
+    if (FOREIGN.test(r.url)) score -= 4;
+    if (score < 2) continue;
     if (!best || score > best.score) best = { r, score, koName };
   }
   if (!best) return null;
 
-  const text = best.r.text ?? "";
-  const equipment = q.items.flatMap((it) => {
+  const text = personWindow(best.r.text ?? "", q.name, best.koName);
+  // 방법(시뮬레이션·실험 등)은 너무 일반적이라 "실험실", 학술지 이름 같은 데 걸린다 → 장비·데이터 항목만 찾는다
+  const methods = new Set<string>(METHOD_OPTIONS);
+  const equipment = q.items.filter((it) => !methods.has(it.label)).flatMap((it) => {
     const snippet = snippetAround(text, [...it.keywords_ko, ...it.keywords_en, it.label]);
     return snippet ? [{ label: it.label, snippet }] : [];
   });
